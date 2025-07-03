@@ -13,8 +13,8 @@ def rtdetr_criterion():
                                gamma=2.0)
     
     criterion = RTDETRCriterion(matcher=matcher,
-                             weight_dict= {'loss_vfl': 1, 'loss_bbox': 5, 'loss_giou': 2},
-                             losses= ['vfl', 'boxes'],
+                             weight_dict= {'loss_vfl': 1, 'loss_bbox': 5, 'loss_giou': 2, 'loss_mask_dice': 5, 'loss_mask_bce': 5},
+                             losses= ['vfl', 'boxes', 'masks'],
                              alpha= 0.75,
                              gamma= 2.0)
     return criterion

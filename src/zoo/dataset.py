@@ -26,6 +26,7 @@ def coco_train_dataset(
                                 T.SanitizeBoundingBoxes(min_size=1),
                                 T.ConvertPILImage(dtype='float32', scale=True),
                                 T.ConvertBoxes(fmt='cxcywh', normalize=True)]),
+        return_masks=True,
         remap_mscoco_category=True, 
         **kwargs)
     
@@ -47,6 +48,7 @@ def coco_val_dataset(
         ann_file=ann_file,
         transforms=T.Compose([T.Resize(size=[640, 640]), 
                               T.ConvertPILImage(dtype='float32', scale=True)]),
+        return_masks=True,
         remap_mscoco_category=True,
         **kwargs)
     

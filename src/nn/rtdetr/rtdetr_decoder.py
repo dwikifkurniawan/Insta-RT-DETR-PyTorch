@@ -277,9 +277,9 @@ class RTDETRTransformer(nn.Module):
                  hidden_dim=256,
                  num_queries=300,
                  position_embed_type='sine',
-                 feat_channels=[512, 1024, 2048],
-                 feat_strides=[8, 16, 32],
-                 num_levels=3,
+                 feat_channels=[256, 512, 1024, 2048],
+                 feat_strides=[4, 8, 16, 32],
+                 num_levels=4,
                  num_points=4,
                  nhead=8,
                  num_layers=6,
@@ -293,7 +293,8 @@ class RTDETRTransformer(nn.Module):
                  eval_spatial_size=None,
                  eval_idx=-1,
                  eps=1e-2, 
-                 aux_loss=True):
+                 aux_loss=True,
+                 mask_head=True):
 
         super(RTDETRTransformer, self).__init__()
         assert position_embed_type in ['sine', 'learned'], \
@@ -307,18 +308,22 @@ class RTDETRTransformer(nn.Module):
         self.nhead = nhead
         self.feat_strides = feat_strides
         self.num_levels = num_levels
+        self.num_det_levels = num_levels - 1 # Levels for detection (P3,P4,P5)
         self.num_classes = num_classes
         self.num_queries = num_queries
         self.eps = eps
         self.num_layers = num_layers
         self.eval_spatial_size = eval_spatial_size
         self.aux_loss = aux_loss
+        self.mask_head = mask_head
 
         # backbone feature projection
         self._build_input_proj_layer(feat_channels)
 
         # Transformer module
-        decoder_layer = TransformerDecoderLayer(hidden_dim, nhead, dim_feedforward, dropout, activation, num_levels, num_points)
+        # decoder_layer = TransformerDecoderLayer(hidden_dim, nhead, dim_feedforward, dropout, activation, num_levels, num_points)
+        # self.decoder = TransformerDecoder(hidden_dim, decoder_layer, num_layers, eval_idx)
+        decoder_layer = TransformerDecoderLayer(hidden_dim, nhead, dim_feedforward, dropout, activation, self.num_det_levels, num_points)
         self.decoder = TransformerDecoder(hidden_dim, decoder_layer, num_layers, eval_idx)
 
         self.num_denoising = num_denoising
@@ -354,6 +359,27 @@ class RTDETRTransformer(nn.Module):
             for _ in range(num_layers)
         ])
 
+        # # mask head
+        # if self.mask_head:
+        #     self.mask_head = nn.ModuleList()
+        #     for _ in range(num_layers):
+        #         self.mask_head.append(
+        #             nn.Sequential(
+        #                 nn.Conv2d(hidden_dim + hidden_dim, 256, kernel_size=3, stride=1, padding=1),
+                        
+        #             )
+        #         )
+        
+        # new mask head
+        if self.mask_head:
+            self.mask_query_embed = MLP(hidden_dim, hidden_dim, hidden_dim, 3)
+            # self.mask_pixel_embed = MLP(hidden_dim, hidden_dim, hidden_dim, 3)
+            self.mask_pixel_proj = nn.Sequential(
+                nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1),
+            )
+
         # init encoder output anchors and valid_mask
         if self.eval_spatial_size:
             self.anchors, self.valid_mask = self._generate_anchors()
@@ -379,44 +405,77 @@ class RTDETRTransformer(nn.Module):
         init.xavier_uniform_(self.query_pos_head.layers[0].weight)
         init.xavier_uniform_(self.query_pos_head.layers[1].weight)
 
+        # # init mask head
+        if self.mask_head:
+            for p in self.mask_query_embed.parameters():
+                if p.dim() > 1:
+                    nn.init.xavier_uniform_(p)
+        
+            for m in self.mask_pixel_proj.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.xavier_uniform_(m.weight)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+
+            # for m in [self.mask_query_embed, self.mask_pixel_embed]:
+            #     for p in m.parameters():
+            #         if p.dim() > 1:
+            #             nn.init.xavier_uniform_(p)
+
 
     def _build_input_proj_layer(self, feat_channels):
+        # self.input_proj = nn.ModuleList()
+        # for in_channels in feat_channels:
+        #     self.input_proj.append(
+        #         nn.Sequential(OrderedDict([
+        #             ('conv', nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)), 
+        #             ('norm', nn.BatchNorm2d(self.hidden_dim,))])
+        #         )
+        #     )
+
+        # in_channels = feat_channels[-1]
+
+        # for _ in range(self.num_levels - len(feat_channels)):
+        #     self.input_proj.append(
+        #         nn.Sequential(OrderedDict([
+        #             ('conv', nn.Conv2d(in_channels, self.hidden_dim, 3, 2, padding=1, bias=False)),
+        #             ('norm', nn.BatchNorm2d(self.hidden_dim))])
+        #         )
+        #     )
+        #     in_channels = self.hidden_dim
+
+        # This function is now used to project the 4 output levels from the HybridEncoder
         self.input_proj = nn.ModuleList()
         for in_channels in feat_channels:
             self.input_proj.append(
                 nn.Sequential(OrderedDict([
-                    ('conv', nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)), 
+                    ('conv', nn.Conv2d(in_channels, self.hidden_dim, 1, bias=False)),
                     ('norm', nn.BatchNorm2d(self.hidden_dim,))])
                 )
             )
 
-        in_channels = feat_channels[-1]
-
-        for _ in range(self.num_levels - len(feat_channels)):
-            self.input_proj.append(
-                nn.Sequential(OrderedDict([
-                    ('conv', nn.Conv2d(in_channels, self.hidden_dim, 3, 2, padding=1, bias=False)),
-                    ('norm', nn.BatchNorm2d(self.hidden_dim))])
-                )
-            )
-            in_channels = self.hidden_dim
 
     def _get_encoder_input(self, feats):
         # get projection features
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
-        if self.num_levels > len(proj_feats):
-            len_srcs = len(proj_feats)
-            for i in range(len_srcs, self.num_levels):
-                if i == len_srcs:
-                    proj_feats.append(self.input_proj[i](feats[-1]))
-                else:
-                    proj_feats.append(self.input_proj[i](proj_feats[-1]))
+        mask_feature = proj_feats[0]
+        det_feats = proj_feats[1:]
+        # if self.num_levels > len(proj_feats):
+        #     len_srcs = len(proj_feats)
+        #     for i in range(len_srcs, self.num_levels):
+        #         if i == len_srcs:
+        #             proj_feats.append(self.input_proj[i](feats[-1]))
+        #         else:
+        #             proj_feats.append(self.input_proj[i](proj_feats[-1]))
+
+        # Features for query selection (P3, P4, P5 only)
+        query_selection_feats = torch.cat([f.flatten(2).permute(0, 2, 1) for f in det_feats], 1)
 
         # get encoder inputs
         feat_flatten = []
         spatial_shapes = []
         level_start_index = [0, ]
-        for i, feat in enumerate(proj_feats):
+        for feat in det_feats:
             _, _, h, w = feat.shape
             # [b, c, h, w] -> [b, h*w, c]
             feat_flatten.append(feat.flatten(2).permute(0, 2, 1))
@@ -428,7 +487,8 @@ class RTDETRTransformer(nn.Module):
         # [b, l, c]
         feat_flatten = torch.concat(feat_flatten, 1)
         level_start_index.pop()
-        return (feat_flatten, spatial_shapes, level_start_index)
+        # return (feat_flatten, spatial_shapes, level_start_index)
+        return feat_flatten, spatial_shapes, level_start_index, mask_feature, query_selection_feats
 
     def _generate_anchors(self,
                           spatial_shapes=None,
@@ -437,11 +497,12 @@ class RTDETRTransformer(nn.Module):
                           device='cpu'):
         if spatial_shapes is None:
             spatial_shapes = [[int(self.eval_spatial_size[0] / s), int(self.eval_spatial_size[1] / s)]
-                for s in self.feat_strides
+                for s in self.feat_strides[1:] # for P3, P4, P5
                 # for s in [32,32,32]
             ]
             
         anchors = []
+        valid_mask = []
         for lvl, (h, w) in enumerate(spatial_shapes):
             grid_y, grid_x = torch.meshgrid(\
                 torch.arange(end=h, dtype=dtype), \
@@ -449,7 +510,7 @@ class RTDETRTransformer(nn.Module):
             grid_xy = torch.stack([grid_x, grid_y], -1)
             valid_WH = torch.tensor([w, h]).to(dtype)
             grid_xy = (grid_xy.unsqueeze(0) + 0.5) / valid_WH
-            wh = torch.ones_like(grid_xy) * grid_size * (2.0 ** lvl)
+            wh = torch.ones_like(grid_xy) * grid_size * (2.0 ** lvl+1)
             anchors.append(torch.concat([grid_xy, wh], -1).reshape(-1, h * w, 4))
 
         anchors = torch.concat(anchors, 1).to(device)
@@ -462,28 +523,66 @@ class RTDETRTransformer(nn.Module):
         return anchors, valid_mask
 
 
-    def _get_decoder_input(self,
-                           memory,
-                           spatial_shapes,
-                           denoising_class=None,
-                           denoising_bbox_unact=None):
-        bs, _, _ = memory.shape
-        # prepare input for decoder
+    # def _get_decoder_input(self,
+    #                        memory,
+    #                        spatial_shapes,
+    #                        denoising_class=None,
+    #                        denoising_bbox_unact=None):
+    #     bs, _, _ = memory.shape
+    #     # prepare input for decoder
+    #     if self.training or self.eval_spatial_size is None:
+    #         anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory.device)
+    #     else:
+    #         anchors, valid_mask = self.anchors.to(memory.device), self.valid_mask.to(memory.device)
+
+    #     # memory = torch.where(valid_mask, memory, 0)
+    #     memory = valid_mask.to(memory.dtype) * memory  # TODO fix type error for onnx export 
+
+    #     output_memory = self.enc_output(memory)
+
+    #     enc_outputs_class = self.enc_score_head(output_memory)
+    #     enc_outputs_coord_unact = self.enc_bbox_head(output_memory) + anchors
+
+    #     _, topk_ind = torch.topk(enc_outputs_class.max(-1).values, self.num_queries, dim=1)
+        
+    #     reference_points_unact = enc_outputs_coord_unact.gather(dim=1, \
+    #         index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_coord_unact.shape[-1]))
+
+    #     enc_topk_bboxes = F.sigmoid(reference_points_unact)
+    #     if denoising_bbox_unact is not None:
+    #         reference_points_unact = torch.concat(
+    #             [denoising_bbox_unact, reference_points_unact], 1)
+        
+    #     enc_topk_logits = enc_outputs_class.gather(dim=1, \
+    #         index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_class.shape[-1]))
+
+    #     # extract region features
+    #     if self.learnt_init_query:
+    #         target = self.tgt_embed.weight.unsqueeze(0).tile([bs, 1, 1])
+    #     else:
+    #         target = output_memory.gather(dim=1, \
+    #             index=topk_ind.unsqueeze(-1).repeat(1, 1, output_memory.shape[-1]))
+    #         target = target.detach()
+
+    #     if denoising_class is not None:
+    #         target = torch.concat([denoising_class, target], 1)
+
+    #     return target, reference_points_unact.detach(), enc_topk_bboxes, enc_topk_logits
+
+    def _get_decoder_input(self, memory_for_selection, spatial_shapes, denoising_class=None, denoising_bbox_unact=None):
+        # memory_for_selection is from P3,P4,P5
+        bs, _, _ = memory_for_selection.shape
         if self.training or self.eval_spatial_size is None:
-            anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory.device)
+            anchors, valid_mask = self._generate_anchors(spatial_shapes, device=memory_for_selection.device)
         else:
-            anchors, valid_mask = self.anchors.to(memory.device), self.valid_mask.to(memory.device)
+            anchors, valid_mask = self.anchors.to(memory_for_selection.device), self.valid_mask.to(memory_for_selection.device)
 
-        # memory = torch.where(valid_mask, memory, 0)
-        memory = valid_mask.to(memory.dtype) * memory  # TODO fix type error for onnx export 
-
+        memory = valid_mask.to(memory_for_selection.dtype) * memory_for_selection
         output_memory = self.enc_output(memory)
-
         enc_outputs_class = self.enc_score_head(output_memory)
         enc_outputs_coord_unact = self.enc_bbox_head(output_memory) + anchors
-
         _, topk_ind = torch.topk(enc_outputs_class.max(-1).values, self.num_queries, dim=1)
-        
+
         reference_points_unact = enc_outputs_coord_unact.gather(dim=1, \
             index=topk_ind.unsqueeze(-1).repeat(1, 1, enc_outputs_coord_unact.shape[-1]))
 
@@ -512,7 +611,8 @@ class RTDETRTransformer(nn.Module):
     def forward(self, feats, targets=None):
 
         # input projection and embedding
-        (memory, spatial_shapes, level_start_index) = self._get_encoder_input(feats) # flatten 
+        # (memory, spatial_shapes, level_start_index) = self._get_encoder_input(feats) # flatten 
+        (memory, det_spatial_shapes, level_start_index, mask_feature, query_selection_feats) = self._get_encoder_input(feats)
         
         # prepare denoising training
         if self.training and self.num_denoising > 0:
@@ -528,42 +628,102 @@ class RTDETRTransformer(nn.Module):
             denoising_class, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
 
         #query selectioon
+        # target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
+        #     self._get_decoder_input(memory, spatial_shapes, denoising_class, denoising_bbox_unact)
         target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
-            self._get_decoder_input(memory, spatial_shapes, denoising_class, denoising_bbox_unact)
+            self._get_decoder_input(query_selection_feats, det_spatial_shapes, denoising_class, denoising_bbox_unact)
+        
+        if self.mask_head:
+            projected_mask_feature = self.mask_pixel_proj(mask_feature)
 
         # decoder
-        out_bboxes, out_logits = self.decoder(
-            target,
-            init_ref_points_unact,
-            memory,
-            spatial_shapes,
-            level_start_index,
-            self.dec_bbox_head,
-            self.dec_score_head,
-            self.query_pos_head,
-            attn_mask=attn_mask)
+        # out_bboxes, out_logits = self.decoder(
+        #     target,
+        #     init_ref_points_unact,
+        #     memory,
+        #     spatial_shapes,
+        #     level_start_index,
+        #     self.dec_bbox_head,
+        #     self.dec_score_head,
+        #     self.query_pos_head,
+        #     attn_mask=attn_mask)
+        out_bboxes, out_logits, out_masks = [], [], []
+        inter_queries = target
+        ref_points_detach = F.sigmoid(init_ref_points_unact)
+        for i in range(self.num_layers):
+            ref_points_input = ref_points_detach.unsqueeze(2)
+            query_pos_embed = self.query_pos_head(ref_points_detach)
+            
+            # Update queries via self- and cross-attention
+            inter_queries = self.decoder.layers[i](inter_queries, ref_points_input, memory, det_spatial_shapes, level_start_index, attn_mask, None, query_pos_embed)
+            
+            # Predict boxes and classes
+            inter_bbox = F.sigmoid(self.dec_bbox_head[i](inter_queries) + inverse_sigmoid(ref_points_detach))
+            inter_logit = self.dec_score_head[i](inter_queries)
+            
+            if self.training:
+                out_logits.append(inter_logit)
+                out_bboxes.append(inter_bbox)
+
+            ref_points_detach = inter_bbox.detach()
+
+            # Predict masks using the efficient dot-product method
+            if self.mask_head:
+                mask_query_embedding = self.mask_query_embed(inter_queries)
+                mask_logits = torch.einsum('bnc,bchw->bnhw', mask_query_embedding, projected_mask_feature)
+                if self.training: out_masks.append(mask_logits)
+        
+        # For inference, take only the output of the last layer
+        if not self.training:
+            out_logits.append(inter_logit)
+            out_bboxes.append(inter_bbox)
+            if self.mask_head: out_masks.append(mask_logits)
+
+        # Stack predictions from all layers
+        out_bboxes = torch.stack(out_bboxes)
+        out_logits = torch.stack(out_logits)
+        if self.mask_head and out_masks: out_masks = torch.stack(out_masks)
+            
 
         if self.training and dn_meta is not None:
             dn_out_bboxes, out_bboxes = torch.split(out_bboxes, dn_meta['dn_num_split'], dim=2)
             dn_out_logits, out_logits = torch.split(out_logits, dn_meta['dn_num_split'], dim=2)
+            if self.mask_head and len(out_masks) > 0:
+                dn_out_masks, out_masks = torch.split(out_masks, dn_meta['dn_num_split'], dim=2)
 
         out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
+        if self.mask_head and len(out_masks) > 0: out['pred_masks'] = out_masks[-1]
 
+        # Prepare auxiliary outputs for loss calculation
         if self.training and self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1])
-            out['aux_outputs'].extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes]))
+            aux_masks = out_masks[:-1] if self.mask_head and len(out_masks) > 1 else None
+            aux_outputs = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1], aux_masks)
+            aux_outputs.extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes], None))
+            out['aux_outputs'] = aux_outputs
             
-            if self.training and dn_meta is not None:
-                out['dn_aux_outputs'] = self._set_aux_loss(dn_out_logits, dn_out_bboxes)
+            if dn_meta is not None:
+                dn_aux_masks = dn_out_masks if self.mask_head and len(out_masks) > 0 else None
+                out['dn_aux_outputs'] = self._set_aux_loss(dn_out_logits, dn_out_bboxes, dn_aux_masks)
                 out['dn_meta'] = dn_meta
+        # if self.training and self.aux_loss:
+        #     out['aux_outputs'] = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1])
+        #     out['aux_outputs'].extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes]))
+            
+        #     if self.training and dn_meta is not None:
+        #         out['dn_aux_outputs'] = self._set_aux_loss(dn_out_logits, dn_out_bboxes)
+        #         out['dn_meta'] = dn_meta
 
         return out
 
 
     @torch.jit.unused
-    def _set_aux_loss(self, outputs_class, outputs_coord):
+    def _set_aux_loss(self, outputs_class, outputs_coord, outputs_mask=None):
         # this is a workaround to make torchscript happy, as torchscript
         # doesn't support dictionary with non-homogeneous values, such
         # as a dict having both a Tensor and a list.
-        return [{'pred_logits': a, 'pred_boxes': b}
-                for a, b in zip(outputs_class, outputs_coord)]
+        if outputs_mask is not None:
+            return [{'pred_logits': a, 'pred_boxes': b, 'pred_masks': c}
+                    for a, b, c in zip(outputs_class, outputs_coord, outputs_mask)]
+        else:
+            return [{'pred_logits': a, 'pred_boxes': b}
+                    for a, b in zip(outputs_class, outputs_coord)]

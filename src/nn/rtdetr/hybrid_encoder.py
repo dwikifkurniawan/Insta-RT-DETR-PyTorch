@@ -177,14 +177,14 @@ class TransformerEncoder(nn.Module):
 
 class HybridEncoder(nn.Module):
     def __init__(self,
-                 in_channels=[512, 1024, 2048],
-                 feat_strides=[8, 16, 32],
+                 in_channels=[256, 512, 1024, 2048],
+                 feat_strides=[4, 8, 16, 32],
                  hidden_dim=256,
                  nhead=8,
                  dim_feedforward = 1024,
                  dropout=0.0,
                  enc_act='gelu',
-                 use_encoder_idx=[2],
+                 use_encoder_idx=[3],
                  num_encoder_layers=1,
                  pe_temperature=10000,
                  expansion=1.0,
@@ -200,7 +200,7 @@ class HybridEncoder(nn.Module):
         self.num_encoder_layers = num_encoder_layers
         self.pe_temperature = pe_temperature
         self.eval_spatial_size = eval_spatial_size        
-        self.out_channels = [hidden_dim for _ in range(len(in_channels))]
+        self.out_channels = [hidden_dim for _ in range(len(in_channels))] # outputnya (P2_mask, P3, P4, P5)
         self.out_strides = feat_strides
         
         # channel projection
@@ -210,6 +210,12 @@ class HybridEncoder(nn.Module):
                 nn.Conv2d(in_channel, hidden_dim, kernel_size=1, bias=False),
                 nn.BatchNorm2d(hidden_dim))
             self.input_proj.append(proj)
+
+        self.mask_feature_head = nn.Sequential(
+            ConvNormLayer(hidden_dim, hidden_dim, kernel_size=3, stride=1, act=act),
+            ConvNormLayer(hidden_dim, hidden_dim, kernel_size=3, stride=1, act=act),
+            ConvNormLayer(hidden_dim, hidden_dim, kernel_size=3, stride=1, act=act),
+        )
 
         # encoder transformer
         encoder_layer = TransformerEncoderLayer(
@@ -224,9 +230,10 @@ class HybridEncoder(nn.Module):
         ])
 
         # top-down fpn
+        num_det_levels = len(in_channels) - 1 # 3 level untuk detection
         self.lateral_convs = nn.ModuleList()
         self.fpn_blocks = nn.ModuleList()
-        for _ in range(len(in_channels) - 1, 0, -1):
+        for _ in range(num_det_levels - 1, 0, -1):
             self.lateral_convs.append(ConvNormLayer(hidden_dim, hidden_dim, 1, 1, act=act))
             self.fpn_blocks.append(
                 CSPRepLayer(hidden_dim * 2, hidden_dim, round(3 * depth_mult), act=act, expansion=expansion)
@@ -235,7 +242,7 @@ class HybridEncoder(nn.Module):
         # bottom-up pan
         self.downsample_convs = nn.ModuleList()
         self.pan_blocks = nn.ModuleList()
-        for _ in range(len(in_channels) - 1):
+        for _ in range(num_det_levels - 1):
             self.downsample_convs.append(
                 ConvNormLayer(hidden_dim, hidden_dim, 3, 2, act=act)
             )
@@ -275,9 +282,17 @@ class HybridEncoder(nn.Module):
 
     def forward(self, feats):
         assert len(feats) == len(self.in_channels)
+        
+        # Project all features to hidden_dim
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
         
-        # encoder
+        # mask feature head (stage 2)
+        mask_feature = self.mask_feature_head(proj_feats[0]) # This is P2_mask
+        
+        det_feats = proj_feats[1:]
+
+        # ini untuk last layer (feat stage 5)
+        # encoder AIFI
         if self.num_encoder_layers > 0:
             for i, enc_ind in enumerate(self.use_encoder_idx):
                 h, w = proj_feats[enc_ind].shape[2:]
@@ -292,23 +307,35 @@ class HybridEncoder(nn.Module):
                 memory :torch.Tensor = self.encoder[i](src_flatten, pos_embed=pos_embed)
                 proj_feats[enc_ind] = memory.permute(0, 2, 1).reshape(-1, self.hidden_dim, h, w).contiguous()
 
-        # broadcasting and fusion
-        inner_outs = [proj_feats[-1]]
-        for idx in range(len(self.in_channels) - 1, 0, -1):
+        # update det_feats after AIFI
+        det_feats = proj_feats[1:] 
+
+        # broadcasting and fusion -> upsampling stage
+        inner_outs = [det_feats[-1]] # start from highest level (P5)
+        # inner_outs = [proj_feats[-1]]
+        for idx in range(len(det_feats) - 1, 0, -1):
             feat_heigh = inner_outs[0]
-            feat_low = proj_feats[idx - 1]
-            feat_heigh = self.lateral_convs[len(self.in_channels) - 1 - idx](feat_heigh)
+            feat_low = det_feats[idx - 1]
+            conv_idx = len(det_feats) - 1 - idx
+            feat_heigh = self.lateral_convs[conv_idx](feat_heigh)
             inner_outs[0] = feat_heigh
             upsample_feat = F.interpolate(feat_heigh, scale_factor=2., mode='nearest')
-            inner_out = self.fpn_blocks[len(self.in_channels)-1-idx](torch.concat([upsample_feat, feat_low], dim=1))
+            inner_out = self.fpn_blocks[conv_idx](torch.concat([upsample_feat, feat_low], dim=1))
             inner_outs.insert(0, inner_out)
 
+        # same as above but downsampling
         outs = [inner_outs[0]]
-        for idx in range(len(self.in_channels) - 1):
+        for idx in range(len(det_feats) - 1):
             feat_low = outs[-1]
             feat_height = inner_outs[idx + 1]
             downsample_feat = self.downsample_convs[idx](feat_low)
             out = self.pan_blocks[idx](torch.concat([downsample_feat, feat_height], dim=1))
             outs.append(out)
 
-        return outs
+
+        # add mask feature to the first output
+        final_outs = [mask_feature] + outs
+
+        # final_outs => p2_mask, p3, p4, p5
+
+        return final_outs
