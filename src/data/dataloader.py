@@ -92,7 +92,7 @@ class BatchImageCollateFuncion(BaseCollateFunction):
             if 'masks' in targets[0]:
                 for tg in targets:
                     tg['masks'] = F.interpolate(tg['masks'], size=sz, mode='nearest')
-                raise NotImplementedError('')
+                # raise NotImplementedError('')
 
         return images, targets
 
