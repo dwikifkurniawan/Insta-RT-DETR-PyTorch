@@ -86,8 +86,8 @@ if __name__ == '__main__':
     parser.add_argument('--epoch', type=int, default=100,
                         help='When test-only is False, this is the number of epochs to train (default: 100)')
 
-    parser.add_argument('--model_type', type=str, default='r18vd',
-                        choices=['r18vd', 'r34vd', 'r50vd', 'r50vd_m', 'r101vd'],
-                        help='choose the model type (default: r18vd)')
+    parser.add_argument('--model_type', type=str, default='r50vd_segm',
+                        choices=['r18vd', 'r34vd', 'r50vd', 'r50vd_m', 'r101vd', 'r50vd_segm'],
+                        help='choose the model type (default: r50vd_segm)')
 
     main()
