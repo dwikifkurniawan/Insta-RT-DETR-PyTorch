@@ -72,7 +72,8 @@ def get_uncertain_point_coords_with_randomness(
     assert importance_sample_ratio <= 1 and importance_sample_ratio >= 0
     num_boxes = coarse_logits.shape[0]
     num_sampled = int(num_points * oversample_ratio)
-    point_coords = torch.rand(num_boxes, num_sampled, 2, device=coarse_logits.device)
+    # point_coords = torch.rand(num_boxes, num_sampled, 2, device=coarse_logits.device) # error RuntimeError: expected scalar type Half but found Float
+    point_coords = torch.rand(num_boxes, num_sampled, 2, device=coarse_logits.device, dtype=coarse_logits.dtype)
     point_logits = point_sample(coarse_logits, point_coords, align_corners=False)
     # It is crucial to calculate uncertainty based on the sampled prediction value for the points.
     # Calculating uncertainties of the coarse predictions first and sampling them for points leads
