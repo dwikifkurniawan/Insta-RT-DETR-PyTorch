@@ -69,6 +69,14 @@ def r50vd(model):
     return rtdetr_optimizer(model=model, params=params)
 
 
+def r50vd_segm(model):
+    params= [{'params': 'backbone', 'lr': 0.00001},
+             {'params': '^(?=.*encoder(?=.*bias|.*norm.*weight)).*$', 'weight_decay': 0.},
+             {'params': '^(?=.*decoder(?=.*bias|.*norm.*weight)).*$', 'weight_decay': 0.}]
+
+    return rtdetr_optimizer(model=model, params=params)
+
+
 def r50vd_m(model):
     params= [{'params': 'backbone', 'lr': 0.00001},
              {'params': '^(?=.*encoder(?=.*bias|.*norm.*weight)).*$', 'weight_decay': 0.},
