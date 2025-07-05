@@ -83,7 +83,7 @@ class ConvertBoxes(T.Transform):
         self.fmt = fmt
         self.normalize = normalize
 
-    def transform(self, inpt: Any, params: Dict[str, Any]) -> Any:  
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:  
         spatial_size = getattr(inpt, _boxes_keys[1])
         if self.fmt:
             in_fmt = inpt.format.value.lower()
@@ -105,7 +105,7 @@ class ConvertPILImage(T.Transform):
         self.dtype = dtype
         self.scale = scale
 
-    def transform(self, inpt: Any, params: Dict[str, Any]) -> Any:  
+    def _transform(self, inpt: Any, params: Dict[str, Any]) -> Any:  
         inpt = F.pil_to_tensor(inpt)
         if self.dtype == 'float32':
             inpt = inpt.float()
