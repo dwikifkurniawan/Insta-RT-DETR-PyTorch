@@ -181,8 +181,10 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
     base_ds = get_coco_api_from_dataset(val_dataloader.dataset)
 
     postprocessor = RTDETRPostProcessor(num_top_queries=300, remap_mscoco_category=val_dataloader.dataset.remap_mscoco_category)
-    coco_evaluator = CocoEvaluator(base_ds, ['bbox'])
-    iou_types = coco_evaluator.iou_types
+    # coco_evaluator = CocoEvaluator(base_ds, ['bbox'])
+    # iou_types = coco_evaluator.iou_types
+    iou_types = ['bbox', 'segm']
+    coco_evaluator = CocoEvaluator(base_ds, iou_types)
     metric_logger = MetricLogger(val_dataloader, header='Test:',)
 
     for samples, targets in metric_logger.log_every():
