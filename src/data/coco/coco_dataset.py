@@ -34,7 +34,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
     def __getitem__(self, idx):
         img, target = self.load_item(idx)
         if self._transforms is not None:
-            img, target, _ = self._transforms(img, target)
+            img, target = self._transforms(img, target)
         return img, target
 
     def load_item(self, idx):
@@ -140,7 +140,7 @@ class CocoDetection_share_memory(torchvision.datasets.VisionDataset):
             target['masks'] = convert_to_tv_tensor(target['masks'], key='masks')
 
         if self._transforms is not None:
-            image, target, _ = self._transforms(image, target)
+            image, target = self._transforms(image, target)
             
         return image, target
     
