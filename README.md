@@ -1,4 +1,5 @@
 ## RTDETR-PyTorch
+This repository fork by [int11/RTDETR-PyTorch](https://github.com/int11/RTDETR-PyTorch).
 This repositroy fork by [lyuwenyu/RT-DETR](https://github.com/lyuwenyu/RT-DETR).
 
 It make for provides better pytorch code.
