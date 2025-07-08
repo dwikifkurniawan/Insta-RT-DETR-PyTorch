@@ -40,7 +40,11 @@ def main():
         train_dataset = zoo.coco_train_dataset(
             img_folder=os.path.join(args.dataset_dir, "train2017"),
             ann_file=os.path.join(args.dataset_dir, "annotations/instances_train2017.json"))
-        train_dataloader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True, drop_last=True, 
+        if dist_utils.is_dist_available_and_initialized():
+            shuffle_train = False
+        else:
+            shuffle_train = True
+        train_dataloader = DataLoader(dataset=train_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=shuffle_train, drop_last=True, 
                                       collate_fn=BatchImageCollateFuncion(scales=[480, 512, 544, 576, 608, 640, 640, 640, 672, 704, 736, 768, 800], stop_epoch=71))
         fit(
             model=model, 
