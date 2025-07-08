@@ -153,10 +153,11 @@ def de_model(model):
 
 def warp_loader(loader, shuffle=False):        
     if is_dist_available_and_initialized():
-        sampler = DistributedSampler(loader.dataset, shuffle=shuffle)
+        sampler = DistributedSampler(loader.dataset, shuffle=True)
         loader = DataLoader(loader.dataset, 
                             loader.batch_size, 
                             sampler=sampler, 
+                            shuffle=False,
                             drop_last=loader.drop_last, 
                             collate_fn=loader.collate_fn, 
                             pin_memory=loader.pin_memory,
