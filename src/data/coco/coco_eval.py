@@ -123,19 +123,11 @@ class CocoEvaluator(object):
             scores = prediction["scores"].tolist()
             labels = prediction["labels"].tolist()
 
-            # rles = [
-            #     # mask_util.encode(np.array(mask[0, :, :, np.newaxis], dtype=np.uint8, order="F"))[0]
-            #     mask_util.encode(np.asfortranarray(mask.cpu().numpy().astype(np.uint8)))
-            #     for mask in masks
-            # ]
-            rles = []
-            for mask in masks:
-                # Convert tensor to a new, independent numpy array in Fortran order
-                # The .copy() is crucial to prevent memory corruption issues with the C-extension.
-                np_mask = np.asfortranarray(mask.cpu().numpy().astype(np.uint8).copy())
-                rle = mask_util.encode(np_mask)
-                rles.append(rle)
-                
+            rles = [
+                mask_util.encode(np.array(mask[0, :, :, np.newaxis], dtype=np.uint8, order="F"))[0]
+                for mask in masks
+            ]
+
             for rle in rles:
                 rle["counts"] = rle["counts"].decode("utf-8")
 
