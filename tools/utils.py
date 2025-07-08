@@ -188,6 +188,10 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
     metric_logger = MetricLogger(val_dataloader, header='Test:',)
 
+    print(f"postprocessor: {postprocessor}")
+    print(f"Coco evaluator: {coco_evaluator}")
+    print(f"metric logger: {metric_logger}")
+
     for samples, targets in metric_logger.log_every():
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -199,8 +203,8 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         results = postprocessor(outputs, orig_target_sizes)
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
-        if coco_evaluator is not None:
-            coco_evaluator.update(res)
+        # if coco_evaluator is not None:
+        #     coco_evaluator.update(res)
 
 
     metric_logger.synchronize_between_processes()
