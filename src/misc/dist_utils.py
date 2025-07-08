@@ -84,6 +84,9 @@ def setup_print(is_main, method='builtin'):
 
 
 def is_dist_available_and_initialized():
+    print("is_dist_available_and_initialized")
+    print("torch.distributed.is_available():", torch.distributed.is_available())
+    print("torch.distributed.is_initialized():", torch.distributed.is_initialized())
     return torch.distributed.is_available() and torch.distributed.is_initialized()
 
 
