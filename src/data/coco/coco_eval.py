@@ -16,11 +16,7 @@ from pycocotools.cocoeval import COCOeval
 from pycocotools.coco import COCO
 import pycocotools.mask as mask_util
 
-from src.misc import dist
-
-
-__all__ = ['CocoEvaluator',]
-
+from ...misc import dist_utils
 
 class CocoEvaluator(object):
     def __init__(self, coco_gt, iou_types):
@@ -171,8 +167,8 @@ def convert_to_xywh(boxes):
 
 
 def merge(img_ids, eval_imgs):
-    all_img_ids = dist.all_gather(img_ids)
-    all_eval_imgs = dist.all_gather(eval_imgs)
+    all_img_ids = dist_utils.all_gather(img_ids)
+    all_eval_imgs = dist_utils.all_gather(eval_imgs)
 
     merged_img_ids = []
     for p in all_img_ids:
