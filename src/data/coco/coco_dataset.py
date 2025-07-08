@@ -12,13 +12,14 @@ import torch.utils.data
 import torchvision
 
 from PIL import Image
-import faster_coco_eval
-import faster_coco_eval.core.mask as coco_mask
+# import faster_coco_eval
+# import faster_coco_eval.core.mask as coco_mask
+from pycocotools import mask as coco_mask
 from ..utils import convert_to_tv_tensor
 
 
 torchvision.disable_beta_transforms_warning()
-faster_coco_eval.init_as_pycocotools()
+# faster_coco_eval.init_as_pycocotools()
 Image.MAX_IMAGE_PIXELS = None
 
 class CocoDetection(torchvision.datasets.CocoDetection):

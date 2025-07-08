@@ -9,8 +9,10 @@ import torch
 import torch.utils.data
 import torchvision
 import torchvision.transforms.functional as TVF
-import faster_coco_eval.core.mask as coco_mask
-from faster_coco_eval import COCO
+# import faster_coco_eval.core.mask as coco_mask
+# from faster_coco_eval import COCO
+from pycocotools import mask as coco_mask
+from pycocotools.coco import COCO
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
