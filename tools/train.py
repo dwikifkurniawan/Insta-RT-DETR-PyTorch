@@ -41,6 +41,7 @@ def main():
             img_folder=os.path.join(args.dataset_dir, "train2017"),
             ann_file=os.path.join(args.dataset_dir, "annotations/instances_train2017.json"))
         if dist_utils.is_dist_available_and_initialized():
+            print("Distributed training is enabled, setting shuffle to False")
             shuffle_train = False
         else:
             shuffle_train = True
