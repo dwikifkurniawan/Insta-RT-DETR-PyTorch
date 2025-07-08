@@ -55,6 +55,7 @@ def fit(model,
     
     #dist wrap modeln loader must do after model.to(device)
     if dist_utils.is_dist_available_and_initialized():
+        print("Distributed training is enabled, wrapping model and dataloaders")
         train_dataloader = dist_utils.warp_loader(train_dataloader)
         val_dataloader = dist_utils.warp_loader(val_dataloader)
         model = dist_utils.warp_model(model, find_unused_parameters=False, sync_bn=True)
