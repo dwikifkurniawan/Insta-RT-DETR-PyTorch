@@ -4,6 +4,7 @@ Copyright (c) 2025 int11. All Rights Reserved.
 
 import os
 import sys
+import wandb
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from src import zoo
 from utils import fit, val, str2bool
@@ -15,7 +16,14 @@ import argparse
 
 def main():
     args = parser.parse_args()
-
+    
+    if args.use_wandb:
+        if not dist_utils.is_dist_available_and_initialized() or dist_utils.get_rank() == 0:
+            wandb.init(
+                project="mask-rtdetr",
+                name=f"{args.model_type}-run-{wandb.util.generate_id()}",
+                config=vars(args)
+            )
 
     dist_utils.init_distributed()
     
@@ -56,8 +64,11 @@ def main():
             val_dataloader=val_dataloader, 
             use_amp=args.amp, 
             use_ema=args.ema, 
-            epoch=args.epoch)
+            epoch=args.epoch,
+            use_wandb=args.use_wandb)
 
+    if args.use_wandb and (not dist_utils.is_dist_available_and_initialized() or dist_utils.get_rank() == 0):
+        wandb.finish()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -94,5 +105,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_type', type=str, default='r50vd_segm',
                         choices=['r18vd', 'r34vd', 'r50vd', 'r50vd_m', 'r101vd', 'r50vd_segm'],
                         help='choose the model type (default: r50vd_segm)')
+    
+    parser.add_argument('--use_wandb', type=str2bool, default=False,
+                        help='Use Weights & Biases for logging (default: False)')
 
     main()

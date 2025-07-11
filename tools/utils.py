@@ -14,6 +14,8 @@ import torch
 from torch.cuda.amp import GradScaler
 import torch.optim.lr_scheduler as lr_schedulers
 import torch.amp 
+import wandb
+
 
 from src.zoo import rtdetr_criterion
 from src.data.coco.coco_eval import CocoEvaluator
@@ -34,7 +36,8 @@ def fit(model,
         criterion=None,
         epoch=73,
         use_amp=True,
-        use_ema=True):
+        use_ema=True,
+        use_wandb=False):
 
     if criterion == None:
         criterion = rtdetr_criterion()
@@ -74,7 +77,7 @@ def fit(model,
         # set dataloader epoch parameter
         train_dataloader.sampler.set_epoch(epoch) if dist_utils.is_dist_available_and_initialized() else train_dataloader.set_epoch(epoch)
         
-        train_one_epoch(model, criterion, train_dataloader, optimizer, device, epoch, max_norm=0.1, print_freq=100, ema=ema_model, scaler=scaler)
+        train_one_epoch(model, criterion, train_dataloader, optimizer, device, epoch, max_norm=0.1, print_freq=100, ema=ema_model, scaler=scaler, use_wandb=use_wandb)
 
         lr_scheduler.step()
 
@@ -82,7 +85,7 @@ def fit(model,
 
         # The val function during training is always use_ema=False flag to skip the logic of fetching ema files
         module = ema_model.module if use_ema == True else model
-        test_stats, coco_evaluator = val(model=module, weight_path=None, criterion=criterion, val_dataloader=val_dataloader)
+        test_stats, coco_evaluator = val(model=module, weight_path=None, criterion=criterion, val_dataloader=val_dataloader, use_wandb=use_wandb, use_amp=use_amp, use_ema=False)
 
         sys.stdout.close()
         
@@ -100,7 +103,8 @@ def train_one_epoch(model: torch.nn.Module,
                     print_freq: int,
                     max_norm: float = 0,
                     ema=None, 
-                    scaler=None):
+                    scaler=None,
+                    use_wandb=False):
     model.train()
     criterion.train()
 
@@ -158,10 +162,17 @@ def train_one_epoch(model: torch.nn.Module,
             print(loss_dict_reduced)
             sys.exit(1)
 
+        if use_wandb and dist_utils.is_main_process():
+            log_data = {"train/" + k: v.item() for k, v in loss_dict_reduced.items()}
+            log_data["train/total_loss"] = loss_value.item()
+            log_data["train/lr"] = optimizer.param_groups[0]["lr"]
+            log_data["epoch"] = epoch
+            wandb.log(log_data)
+
 
 #TODO This function too complex and slow because it from original repository, need to refactor
 @torch.no_grad()
-def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_ema=True):
+def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_ema=True, use_wandb=False):
     if criterion == None:
         criterion = rtdetr_criterion()
 
@@ -222,11 +233,52 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
 
     stats = {}
 
-    if coco_evaluator is not None:
-        if 'bbox' in iou_types:
-            stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
-        if 'segm' in iou_types:
-            stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
+    if use_wandb and dist_utils.is_main_process():
+        log_data = {}
+        if coco_evaluator is not None:
+            if 'bbox' in iou_types:
+                bbox_stats = coco_evaluator.coco_eval['bbox'].stats
+                stats['coco_eval_bbox'] = bbox_stats.tolist() 
+                log_data.update({
+                    "val/bbox_AP": bbox_stats[0],           # AP @ IoU=.50:.05:.95 | area=all
+                    "val/bbox_AP50": bbox_stats[1],         # AP @ IoU=.50        | area=all
+                    "val/bbox_AP75": bbox_stats[2],         # AP @ IoU=.75        | area=all
+                    "val/bbox_AP_small": bbox_stats[3],     # AP @ IoU=.50:.05:.95 | area=small
+                    "val/bbox_AP_medium": bbox_stats[4],    # AP @ IoU=.50:.05:.95 | area=medium
+                    "val/bbox_AP_large": bbox_stats[5],     # AP @ IoU=.50:.05:.95 | area=large
+                    "val/bbox_AR_1": bbox_stats[6],         # AR @ IoU=.50:.05:.95 | area=all | maxDets=1
+                    "val/bbox_AR_10": bbox_stats[7],        # AR @ IoU=.50:.05:.95 | area=all | maxDets=10
+                    "val/bbox_AR_100": bbox_stats[8],       # AR @ IoU=.50:.05:.95 | area=all | maxDets=100
+                    "val/bbox_AR_small": bbox_stats[9],     # AR @ IoU=.50:.05:.95 | area=small
+                    "val/bbox_AR_medium": bbox_stats[10],   # AR @ IoU=.50:.05:.95 | area=medium
+                    "val/bbox_AR_large": bbox_stats[11],    # AR @ IoU=.50:.05:.95 | area=large
+                })
+            if 'segm' in iou_types:
+                segm_stats = coco_evaluator.coco_eval['segm'].stats
+                stats['coco_eval_masks'] = segm_stats.tolist()                
+                log_data.update({
+                    "val/segm_AP": segm_stats[0],
+                    "val/segm_AP50": segm_stats[1],
+                    "val/segm_AP75": segm_stats[2],
+                    "val/segm_AP_small": segm_stats[3],
+                    "val/segm_AP_medium": segm_stats[4],
+                    "val/segm_AP_large": segm_stats[5],
+                    "val/segm_AR_1": segm_stats[6],
+                    "val/segm_AR_10": segm_stats[7],
+                    "val/segm_AR_100": segm_stats[8],
+                    "val/segm_AR_small": segm_stats[9],
+                    "val/segm_AR_medium": segm_stats[10],
+                    "val/segm_AR_large": segm_stats[11],
+                })
+    else:
+        if coco_evaluator is not None:
+            if 'bbox' in iou_types:
+                stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
+            if 'segm' in iou_types:
+                stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
+
+    if log_data:
+        wandb.log(log_data)
             
     return stats, coco_evaluator
 

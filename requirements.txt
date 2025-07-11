@@ -8,3 +8,4 @@ scipy
 psutil
 tabulate
 faster-coco-eval>=1.6.5
+wandb
