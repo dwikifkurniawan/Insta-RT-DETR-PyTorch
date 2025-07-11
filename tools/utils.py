@@ -270,16 +270,16 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
                     "val/segm_AR_medium": segm_stats[10],
                     "val/segm_AR_large": segm_stats[11],
                 })
+            
+        if log_data:
+            wandb.log(log_data)
     else:
         if coco_evaluator is not None:
             if 'bbox' in iou_types:
                 stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
             if 'segm' in iou_types:
                 stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
-
-    if log_data:
-        wandb.log(log_data)
-            
+                
     return stats, coco_evaluator
 
 
