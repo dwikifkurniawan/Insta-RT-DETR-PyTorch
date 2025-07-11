@@ -117,7 +117,9 @@ def train_one_epoch(model: torch.nn.Module,
                 outputs = model(samples, targets)
             loss_dict = criterion(outputs, targets)
 
-            loss = sum(loss_dict.values())
+            # loss = sum(loss_dict.values())
+            weight_dict = criterion.weight_dict
+            loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             scaler.scale(loss).backward()
 
             if max_norm > 0:
@@ -131,7 +133,9 @@ def train_one_epoch(model: torch.nn.Module,
             outputs = model(samples, targets)
             loss_dict = criterion(outputs, targets)
 
-            loss = sum(loss_dict.values())
+            # loss = sum(loss_dict.values())
+            weight_dict = criterion.weight_dict
+            loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             optimizer.zero_grad()
             loss.backward()
             
