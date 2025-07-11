@@ -209,7 +209,7 @@ class HungarianMatcher(nn.Module):
                     align_corners=False,
                 ).squeeze(1)
 
-                with autocast(device_type=out_mask.device.type, enabled=False):
+                with autocast(enabled=False):
                     out_mask = out_mask.float()
                     tgt_mask = tgt_mask.float()
                     # If there's no annotations
