@@ -194,7 +194,7 @@ class HungarianMatcher(nn.Module):
             out_mask = out_mask[:, None]
             tgt_mask = tgt_mask[:, None]
             # all masks share the same set of points for efficient matching!
-            point_coords = torch.rand(1, self.num_points, 2, device=out_mask.device)
+            point_coords = torch.rand(1, self.num_points, 2, device=out_mask.device, dtype=out_mask.dtype)
             # get gt labels
             tgt_mask = point_sample(
                 tgt_mask,
@@ -233,10 +233,10 @@ class HungarianMatcher(nn.Module):
             C = C.reshape(num_queries, -1).cpu()
             indices.append(linear_sum_assignment(C))
 
-            final_indices_list = []
-            for pred_numpy, tgt_numpy in indices:
-                pred_tensor = torch.as_tensor(pred_numpy, dtype=torch.int64)
-                tgt_tensor = torch.as_tensor(tgt_numpy, dtype=torch.int64)
-                final_indices_list.append((pred_tensor, tgt_tensor))
+        final_indices_list = []
+        for pred_numpy, tgt_numpy in indices:
+            pred_tensor = torch.as_tensor(pred_numpy, dtype=torch.int64)
+            tgt_tensor = torch.as_tensor(tgt_numpy, dtype=torch.int64)
+            final_indices_list.append((pred_tensor, tgt_tensor))
 
-        return final_indices_list
+        return {'indices': final_indices_list}
