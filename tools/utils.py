@@ -152,15 +152,23 @@ def train_one_epoch(model: torch.nn.Module,
         if ema != None:
             ema.update(model)
 
+        # loss_dict_reduced = reduce_dict(loss_dict)
+        # loss_value = sum(loss_dict_reduced.values())
         loss_dict_reduced = reduce_dict(loss_dict)
-        loss_value = sum(loss_dict_reduced.values())
+        loss_dict_reduced_scaled = {k: v * weight_dict[k]
+                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        total_loss_reduced_scaled = sum(loss_dict_reduced_scaled.values())
+        loss_value = total_loss_reduced_scaled.item()
 
-        metric_logger.update(loss=loss_value, lr=optimizer.param_groups[0]["lr"])
+        # metric_logger.update(loss=loss_value, lr=optimizer.param_groups[0]["lr"])
 
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
             print(loss_dict_reduced)
             sys.exit(1)
+
+        metric_logger.update(loss=loss_value, **loss_dict_reduced_scaled)
+        metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
         if use_wandb and dist_utils.is_main_process():
             log_data = {"train/" + k: v.item() for k, v in loss_dict_reduced.items()}
@@ -279,7 +287,7 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
                 stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
             if 'segm' in iou_types:
                 stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
-                
+
     return stats, coco_evaluator
 
 
