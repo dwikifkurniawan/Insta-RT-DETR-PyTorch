@@ -650,7 +650,6 @@ class RTDETRTransformer(nn.Module):
         out_bboxes, out_logits, out_masks = [], [], []
         inter_queries = target
         ref_points_detach = F.sigmoid(init_ref_points_unact)
-        intermediate_outputs = []
         for i in range(self.num_layers):
             ref_points_input = ref_points_detach.unsqueeze(2)
             query_pos_embed = self.query_pos_head(ref_points_detach)
@@ -661,11 +660,6 @@ class RTDETRTransformer(nn.Module):
             # Predict boxes and classes
             inter_bbox = F.sigmoid(self.dec_bbox_head[i](inter_queries) + inverse_sigmoid(ref_points_detach))
             inter_logit = self.dec_score_head[i](inter_queries)
-
-            layer_output = {
-                'pred_logits': inter_logit,
-                'pred_boxes': inter_bbox,
-            }
             
             if self.training:
                 out_logits.append(inter_logit)
@@ -677,10 +671,7 @@ class RTDETRTransformer(nn.Module):
             if self.mask_head:
                 mask_query_embedding = self.mask_query_embed(inter_queries)
                 mask_logits = torch.einsum('bnc,bchw->bnhw', mask_query_embedding, projected_mask_feature)
-                layer_output['pred_masks'] = mask_logits
                 if self.training: out_masks.append(mask_logits)
-
-            intermediate_outputs.append(layer_output)
         
         # For inference, take only the output of the last layer
         if not self.training:
@@ -700,18 +691,15 @@ class RTDETRTransformer(nn.Module):
             if self.mask_head and len(out_masks) > 0:
                 dn_out_masks, out_masks = torch.split(out_masks, dn_meta['dn_num_split'], dim=2)
 
-        # out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
-        out = intermediate_outputs[-1]
+        out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
         if self.mask_head and len(out_masks) > 0: out['pred_masks'] = out_masks[-1]
 
         # Prepare auxiliary outputs for loss calculation
         if self.training and self.aux_loss:
-            # aux_masks = out_masks[:-1] if self.mask_head and len(out_masks) > 1 else None
-            # aux_outputs = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1], aux_masks)
-            # aux_outputs.extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes], None))
-            # out['aux_outputs'] = aux_outputs
-            out['aux_outputs'] = intermediate_outputs[:-1]
-            out['aux_outputs'].extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes], None))
+            aux_masks = out_masks[:-1] if self.mask_head and len(out_masks) > 1 else None
+            aux_outputs = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1], aux_masks)
+            aux_outputs.extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes], None))
+            out['aux_outputs'] = aux_outputs
             
             if dn_meta is not None:
                 dn_aux_masks = dn_out_masks if self.mask_head and len(out_masks) > 0 else None
