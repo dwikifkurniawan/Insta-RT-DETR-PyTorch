@@ -20,7 +20,7 @@ def main():
     if args.use_wandb:
         if not dist_utils.is_dist_available_and_initialized() or dist_utils.get_rank() == 0:
             wandb.init(
-                project="mask-rtdetr",
+                project="insta-rtdetr",
                 name=f"{args.model_type}-run-{wandb.util.generate_id()}",
                 config=vars(args)
             )
