@@ -411,6 +411,8 @@ class RTDETRCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)['indices']
                 for loss in self.losses:
+                    if loss == 'masks' and 'pred_masks' not in aux_outputs:
+                        continue
                     # if loss == 'masks':
                     #     # Intermediate masks losses are too costly to compute, we ignore them.
                     #     continue
@@ -431,6 +433,8 @@ class RTDETRCriterion(nn.Module):
             dn_num_boxes = num_boxes * outputs['dn_meta']['dn_num_group']
             for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
                 for loss in self.losses:
+                    if loss == 'masks' and 'pred_masks' not in aux_outputs:
+                        continue
                     # if loss == 'masks':
                     #     # Intermediate masks losses are too costly to compute, we ignore them.
                     #     continue
