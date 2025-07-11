@@ -172,7 +172,7 @@ def train_one_epoch(model: torch.nn.Module,
 
         if use_wandb and dist_utils.is_main_process():
             log_data = {"train/" + k: v.item() for k, v in loss_dict_reduced.items()}
-            log_data["train/total_loss"] = loss_value.item()
+            log_data["train/total_loss"] = loss_value
             log_data["train/lr"] = optimizer.param_groups[0]["lr"]
             log_data["epoch"] = epoch
             wandb.log(log_data)
