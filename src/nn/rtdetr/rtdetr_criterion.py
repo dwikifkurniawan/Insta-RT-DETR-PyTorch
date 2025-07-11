@@ -411,9 +411,9 @@ class RTDETRCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)['indices']
                 for loss in self.losses:
-                    if loss == 'masks':
-                        # Intermediate masks losses are too costly to compute, we ignore them.
-                        continue
+                    # if loss == 'masks':
+                    #     # Intermediate masks losses are too costly to compute, we ignore them.
+                    #     continue
                     kwargs = {}
                     if loss == 'labels':
                         # Logging is enabled only for the last layer
@@ -431,9 +431,9 @@ class RTDETRCriterion(nn.Module):
             dn_num_boxes = num_boxes * outputs['dn_meta']['dn_num_group']
             for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
                 for loss in self.losses:
-                    if loss == 'masks':
-                        # Intermediate masks losses are too costly to compute, we ignore them.
-                        continue
+                    # if loss == 'masks':
+                    #     # Intermediate masks losses are too costly to compute, we ignore them.
+                    #     continue
 
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, dn_num_boxes, **kwargs)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
