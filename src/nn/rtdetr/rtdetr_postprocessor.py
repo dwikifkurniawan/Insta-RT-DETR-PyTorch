@@ -105,7 +105,7 @@ class RTDETRPostProcessor(nn.Module):
                 ).squeeze(0) # Remove the temp batch dim
 
                 # Binarize and store
-                processed_masks.append(upsampled > self.mask_threshold)
+                processed_masks.append(upsampled)
 
         # --- 4. Format Final Results ---
         # `deploy_mode` for ONNX export would need special handling for masks and is omitted for clarity
