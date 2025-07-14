@@ -289,6 +289,7 @@ class RTDETRTransformer(nn.Module):
                  num_denoising=100,
                  label_noise_ratio=0.5,
                  box_noise_scale=1.0,
+                # box_noise_scale=0.4,
                  learnt_init_query=False,
                  eval_spatial_size=None,
                  eval_idx=-1,
@@ -422,6 +423,163 @@ class RTDETRTransformer(nn.Module):
             #         if p.dim() > 1:
             #             nn.init.xavier_uniform_(p)
 
+    def prepare_for_dn(self, targets, tgt, refpoint_emb, batch_size):
+        """
+        # modified from dn-detr. You can refer to dn-detr
+        # https://github.com/IDEA-Research/DN-DETR/blob/main/models/dn_dab_deformable_detr/dn_components.py
+        mostly copied from MaskDINO. refer to MaskDINO
+        https://github.com/IDEA-Research/MaskDINO/blob/main/maskdino/modeling/transformer_decoder/maskdino_decoder.py
+        for more details
+            :param dn_args: scalar, noise_scale
+            :param tgt: original tgt (content) in the matching part
+            :param refpoint_emb: positional anchor queries in the matching part
+            :param batch_size: bs
+        """
+        if self.training:
+            scalar, noise_scale = self.num_denoising,self.box_noise_scale
+
+            known = [(torch.ones_like(t['labels'])).cuda() for t in targets]
+            know_idx = [torch.nonzero(t) for t in known]
+            known_num = [sum(k) for k in known]
+
+            # use fix number of dn queries
+            if max(known_num)>0:
+                scalar = scalar//(int(max(known_num)))
+            else:
+                scalar = 0
+            if scalar == 0:
+                input_query_label = None
+                input_query_bbox = None
+                attn_mask = None
+                mask_dict = None
+                return input_query_label, input_query_bbox, attn_mask, mask_dict
+
+            # can be modified to selectively denosie some label or boxes; also known label prediction
+            unmask_bbox = unmask_label = torch.cat(known)
+            labels = torch.cat([t['labels'] for t in targets])
+            boxes = torch.cat([t['boxes'] for t in targets])
+            batch_idx = torch.cat([torch.full_like(t['labels'].long(), i) for i, t in enumerate(targets)])
+            # known
+            known_indice = torch.nonzero(unmask_label + unmask_bbox)
+            known_indice = known_indice.view(-1)
+
+            # noise
+            known_indice = known_indice.repeat(scalar, 1).view(-1)
+            known_labels = labels.repeat(scalar, 1).view(-1)
+            known_bid = batch_idx.repeat(scalar, 1).view(-1)
+            known_bboxs = boxes.repeat(scalar, 1)
+            known_labels_expaned = known_labels.clone()
+            known_bbox_expand = known_bboxs.clone()
+
+            # noise on the label
+            if noise_scale > 0:
+                p = torch.rand_like(known_labels_expaned.float())
+                chosen_indice = torch.nonzero(p < (noise_scale * 0.5)).view(-1)  # half of bbox prob
+                new_label = torch.randint_like(chosen_indice, 0, self.num_classes)  # randomly put a new one here
+                known_labels_expaned.scatter_(0, chosen_indice, new_label)
+            if noise_scale > 0:
+                diff = torch.zeros_like(known_bbox_expand)
+                diff[:, :2] = known_bbox_expand[:, 2:] / 2
+                diff[:, 2:] = known_bbox_expand[:, 2:]
+                known_bbox_expand += torch.mul((torch.rand_like(known_bbox_expand) * 2 - 1.0),
+                                               diff).cuda() * noise_scale
+                known_bbox_expand = known_bbox_expand.clamp(min=0.0, max=1.0)
+
+            m = known_labels_expaned.long().to('cuda')
+            # input_label_embed = self.label_enc(m)
+            input_label_embed = self.denoising_class_embed(m)
+            input_bbox_embed = inverse_sigmoid(known_bbox_expand)
+            single_pad = int(max(known_num))
+            pad_size = int(single_pad * scalar)
+
+            padding_label = torch.zeros(pad_size, self.hidden_dim).cuda()
+            padding_bbox = torch.zeros(pad_size, 4).cuda()
+
+            if not refpoint_emb is None:
+                input_query_label = torch.cat([padding_label, tgt], dim=0).repeat(batch_size, 1, 1)
+                input_query_bbox = torch.cat([padding_bbox, refpoint_emb], dim=0).repeat(batch_size, 1, 1)
+            else:
+                input_query_label = padding_label.repeat(batch_size, 1, 1)
+                input_query_bbox = padding_bbox.repeat(batch_size, 1, 1)
+
+            # map
+            map_known_indice = torch.tensor([]).to('cuda')
+            if len(known_num):
+                map_known_indice = torch.cat([torch.tensor(range(num)) for num in known_num])  # [1,2, 1,2,3]
+                map_known_indice = torch.cat([map_known_indice + single_pad * i for i in range(scalar)]).long()
+            if len(known_bid):
+                input_query_label[(known_bid.long(), map_known_indice)] = input_label_embed
+                input_query_bbox[(known_bid.long(), map_known_indice)] = input_bbox_embed
+
+            tgt_size = pad_size + self.num_queries
+            attn_mask = torch.ones(tgt_size, tgt_size).to('cuda') < 0
+            # match query cannot see the reconstruct
+            attn_mask[pad_size:, :pad_size] = True
+            # reconstruct cannot see each other
+            for i in range(scalar):
+                if i == 0:
+                    attn_mask[single_pad * i:single_pad * (i + 1), single_pad * (i + 1):pad_size] = True
+                if i == scalar - 1:
+                    attn_mask[single_pad * i:single_pad * (i + 1), :single_pad * i] = True
+                else:
+                    attn_mask[single_pad * i:single_pad * (i + 1), single_pad * (i + 1):pad_size] = True
+                    attn_mask[single_pad * i:single_pad * (i + 1), :single_pad * i] = True
+            mask_dict = {
+                'known_indice': torch.as_tensor(known_indice).long(),
+                'batch_idx': torch.as_tensor(batch_idx).long(),
+                'map_known_indice': torch.as_tensor(map_known_indice).long(),
+                'known_lbs_bboxes': (known_labels, known_bboxs),
+                'know_idx': know_idx,
+                'pad_size': pad_size,
+                'scalar': scalar,
+            }
+        else:
+            if not refpoint_emb is None:
+                input_query_label = tgt.repeat(batch_size, 1, 1)
+                input_query_bbox = refpoint_emb.repeat(batch_size, 1, 1)
+            else:
+                input_query_label=None
+                input_query_bbox=None
+            attn_mask = None
+            mask_dict=None
+
+        # 100*batch*256
+        if not input_query_bbox is None:
+            input_query_label = input_query_label
+            input_query_bbox = input_query_bbox
+
+        return input_query_label, input_query_bbox, attn_mask, mask_dict
+    
+    def dn_post_process(self, outputs_class, outputs_coord, mask_dict, outputs_mask):
+        """
+        mostly copied from MaskDINO. refer to MaskDINO
+        https://github.com/IDEA-Research/MaskDINO/blob/main/maskdino/modeling/transformer_decoder/maskdino_decoder.py
+        post process of dn after output from the transformer
+        put the dn part in the mask_dict
+        """
+        # assert mask_dict['pad_size'] > 0
+        if mask_dict is None:
+            return outputs_class, outputs_coord, outputs_mask
+
+        output_known_class = outputs_class[:, :, :mask_dict['pad_size'], :]
+        outputs_class = outputs_class[:, :, mask_dict['pad_size']:, :]
+        output_known_coord = outputs_coord[:, :, :mask_dict['pad_size'], :]
+        outputs_coord = outputs_coord[:, :, mask_dict['pad_size']:, :]
+        if outputs_mask is not None:
+            output_known_mask = outputs_mask[:, :, :mask_dict['pad_size'], :]
+            outputs_mask = outputs_mask[:, :, mask_dict['pad_size']:, :]
+
+        # ini denoising loss dict
+        out = {'pred_logits': output_known_class[-1], 'pred_boxes': output_known_coord[-1]}
+        if output_known_mask is not None:
+            out['pred_masks'] = output_known_mask[-1]
+
+        # ini auxiliary output untuk denoising
+        # out['aux_outputs'] = self._set_aux_loss(output_known_class, output_known_mask, output_known_coord)
+        out['aux_outputs'] = self._set_aux_loss(output_known_class[:-1], output_known_coord[:-1], output_known_mask[:-1] if output_known_mask is not None else None)
+
+        mask_dict['output_known_lbs_bboxes']=out
+        return outputs_class, outputs_coord, outputs_mask
 
     def _build_input_proj_layer(self, feat_channels):
         # self.input_proj = nn.ModuleList()
@@ -613,25 +771,34 @@ class RTDETRTransformer(nn.Module):
         # input projection and embedding
         # (memory, spatial_shapes, level_start_index) = self._get_encoder_input(feats) # flatten 
         (memory, det_spatial_shapes, level_start_index, mask_feature, query_selection_feats) = self._get_encoder_input(feats)
+
+        bs = query_selection_feats.shape[0]
         
-        # prepare denoising training
-        if self.training and self.num_denoising > 0:
-            denoising_class, denoising_bbox_unact, attn_mask, dn_meta = \
-                get_contrastive_denoising_training_group(targets, \
-                    self.num_classes, 
-                    self.num_queries, 
-                    self.denoising_class_embed, 
-                    num_denoising=self.num_denoising, 
-                    label_noise_ratio=self.label_noise_ratio, 
-                    box_noise_scale=self.box_noise_scale, )
-        else:
-            denoising_class, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
+        # # prepare denoising training
+        # if self.training and self.num_denoising > 0:
+        #     denoising_class, denoising_bbox_unact, attn_mask, dn_meta = \
+        #         get_contrastive_denoising_training_group(targets, \
+        #             self.num_classes, 
+        #             self.num_queries, 
+        #             self.denoising_class_embed, 
+        #             num_denoising=self.num_denoising, 
+        #             label_noise_ratio=self.label_noise_ratio, 
+        #             box_noise_scale=self.box_noise_scale, )
+        # else:
+        #     denoising_class, denoising_bbox_unact, attn_mask, dn_meta = None, None, None, None
 
         #query selectioon
         # target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
         #     self._get_decoder_input(memory, spatial_shapes, denoising_class, denoising_bbox_unact)
         target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
-            self._get_decoder_input(query_selection_feats, det_spatial_shapes, denoising_class, denoising_bbox_unact)
+            self._get_decoder_input(query_selection_feats, det_spatial_shapes)
+        
+        if self.training and self.num_denoising > 0:
+            input_query_label, input_query_bbox, attn_mask, mask_dict = \
+                self.prepare_for_dn(targets, target, init_ref_points_unact.sigmoid(), bs)
+        if mask_dict is not None and self.training:
+            target = torch.concat([input_query_label, target], 1)
+            init_ref_points_unact = torch.concat([input_query_bbox, init_ref_points_unact], 1)
         
         if self.mask_head:
             projected_mask_feature = self.mask_pixel_proj(mask_feature)
@@ -671,7 +838,8 @@ class RTDETRTransformer(nn.Module):
             if self.mask_head:
                 mask_query_embedding = self.mask_query_embed(inter_queries)
                 mask_logits = torch.einsum('bnc,bchw->bnhw', mask_query_embedding, projected_mask_feature)
-                if self.training: out_masks.append(mask_logits)
+                if self.training: 
+                    out_masks.append(mask_logits)
         
         # For inference, take only the output of the last layer
         if not self.training:
@@ -682,17 +850,20 @@ class RTDETRTransformer(nn.Module):
         # Stack predictions from all layers
         out_bboxes = torch.stack(out_bboxes)
         out_logits = torch.stack(out_logits)
-        if self.mask_head and out_masks: out_masks = torch.stack(out_masks)
+        if self.mask_head and out_masks: 
+            out_masks = torch.stack(out_masks)
             
+        # if self.training and dn_meta is not None:
+        #     dn_out_bboxes, out_bboxes = torch.split(out_bboxes, dn_meta['dn_num_split'], dim=2)
+        #     dn_out_logits, out_logits = torch.split(out_logits, dn_meta['dn_num_split'], dim=2)
+        #     if self.mask_head and len(out_masks) > 0:
+        #         dn_out_masks, out_masks = torch.split(out_masks, dn_meta['dn_num_split'], dim=2)
 
-        if self.training and dn_meta is not None:
-            dn_out_bboxes, out_bboxes = torch.split(out_bboxes, dn_meta['dn_num_split'], dim=2)
-            dn_out_logits, out_logits = torch.split(out_logits, dn_meta['dn_num_split'], dim=2)
-            if self.mask_head and len(out_masks) > 0:
-                dn_out_masks, out_masks = torch.split(out_masks, dn_meta['dn_num_split'], dim=2)
+        out_logits, out_bboxes, out_masks = self.dn_post_process(out_logits, out_bboxes, mask_dict, out_masks) if self.training and mask_dict is not None else (out_logits, out_bboxes, out_masks)
 
         out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
-        if self.mask_head and len(out_masks) > 0: out['pred_masks'] = out_masks[-1]
+        if self.mask_head and len(out_masks) > 0: 
+            out['pred_masks'] = out_masks[-1]
 
         # Prepare auxiliary outputs for loss calculation
         if self.training and self.aux_loss:
@@ -700,11 +871,16 @@ class RTDETRTransformer(nn.Module):
             aux_outputs = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1], aux_masks)
             aux_outputs.extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes], None))
             out['aux_outputs'] = aux_outputs
+
+            if mask_dict is not None:
+                out['dn_aux_outputs'] = mask_dict['output_known_lbs_bboxes']
+                out['dn_meta'] = mask_dict
             
-            if dn_meta is not None:
-                dn_aux_masks = dn_out_masks if self.mask_head and len(out_masks) > 0 else None
-                out['dn_aux_outputs'] = self._set_aux_loss(dn_out_logits, dn_out_bboxes, dn_aux_masks)
-                out['dn_meta'] = dn_meta
+            # if dn_meta is not None:
+            #     dn_aux_masks = dn_out_masks if self.mask_head and len(out_masks) > 0 else None
+            #     out['dn_aux_outputs'] = self._set_aux_loss(dn_out_logits, dn_out_bboxes, dn_aux_masks)
+            #     out['dn_meta'] = dn_meta
+
         # if self.training and self.aux_loss:
         #     out['aux_outputs'] = self._set_aux_loss(out_logits[:-1], out_bboxes[:-1])
         #     out['aux_outputs'].extend(self._set_aux_loss([enc_topk_logits], [enc_topk_bboxes]))

@@ -1,4 +1,8 @@
 """
+Hybrid criterion that combines:
+- Original RT-DETR criterion structure.
+- Point-wise mask loss similar to MaskDINO and Mask2Former.
+- MaskDINO style Denoising.
 reference: 
 https://github.com/facebookresearch/detr/blob/main/models/detr.py
 https://github.com/facebookresearch/detectron2/blob/main/projects/PointRend/point_rend/point_features.py
@@ -20,7 +24,9 @@ from ...misc.dist_utils import get_world_size, is_dist_available_and_initialized
 # helper for pointwise loss
 def point_sample(input, point_coords, **kwargs):
     """
-    from detectron2
+    Copied from detectron2 PointRend implementation.
+    https://github.com/facebookresearch/detectron2/blob/main/projects/PointRend/point_rend/point_features.py
+
     A wrapper around :function:`torch.nn.functional.grid_sample` to support 3D point_coords tensors.
     Unlike :function:`torch.nn.functional.grid_sample` it assumes `point_coords` to lie inside
     [0, 1] x [0, 1] square.
@@ -48,7 +54,9 @@ def get_uncertain_point_coords_with_randomness(
     coarse_logits, uncertainty_func, num_points, oversample_ratio, importance_sample_ratio
 ):
     """
-    from detectron2
+    Mostly copied from detectron2 PointRend implementation.
+    https://github.com/facebookresearch/detectron2/blob/main/projects/PointRend/point_rend/point_features.py
+
     Sample points in [0, 1] x [0, 1] coordinate space based on their uncertainty. The unceratinties
         are calculated for each point using 'uncertainty_func' function that takes point's logit
         prediction as input.
@@ -426,23 +434,54 @@ class RTDETRCriterion(nn.Module):
                     l_dict = {k + f'_aux_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
-        # In case of cdn auxiliary losses. For rtdetr
-        if 'dn_aux_outputs' in outputs:
-            assert 'dn_meta' in outputs, ''
-            indices = self.get_cdn_matched_indices(outputs['dn_meta'], targets)
-            dn_num_boxes = num_boxes * outputs['dn_meta']['dn_num_group']
-            for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
-                for loss in self.losses:
-                    if loss == 'masks' and 'pred_masks' not in aux_outputs:
-                        continue
-                    # if loss == 'masks':
-                    #     # Intermediate masks losses are too costly to compute, we ignore them.
-                    #     continue
+        # In case of cdn auxiliary losses. For rtdetr (commented out)
+        # if 'dn_aux_outputs' in outputs:
+        #     assert 'dn_meta' in outputs, ''
+        #     indices = self.get_cdn_matched_indices(outputs['dn_meta'], targets)
+        #     dn_num_boxes = num_boxes * outputs['dn_meta']['dn_num_group']
+        #     for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
+        #         for loss in self.losses:
+        #             if loss == 'masks' and 'pred_masks' not in aux_outputs:
+        #                 continue
+        #             # if loss == 'masks':
+        #             #     # Intermediate masks losses are too costly to compute, we ignore them.
+        #             #     continue
 
-                    l_dict = self.get_loss(loss, aux_outputs, targets, indices, dn_num_boxes, **kwargs)
-                    l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
-                    l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
-                    losses.update(l_dict)
+        #             l_dict = self.get_loss(loss, aux_outputs, targets, indices, dn_num_boxes, **kwargs)
+        #             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
+        #             l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
+        #             losses.update(l_dict)
+
+        # Denoising losses following the logic MaskDINO
+        if 'dn_aux_outputs' in outputs:
+            dn_meta = outputs['dn_meta']
+            dn_outputs = outputs['dn_aux_outputs']
+            dn_indices = self.get_cdn_matched_indices(dn_meta, targets)
+            # dn_num_boxes = len(dn_meta['known_indice'])
+            scalar = dn_meta.get('scalar', 1)
+            dn_num_boxes = num_boxes * scalar
+
+            for loss in self.losses:
+                if loss == 'masks' and 'pred_masks' not in dn_outputs:
+                    continue
+                l_dict = self.get_loss(loss, dn_outputs, targets, dn_indices, dn_num_boxes)
+                l_dict = {k + '_dn': v for k, v in l_dict.items()}
+                losses.update(l_dict)
+            
+            if 'aux_outputs' in dn_outputs:
+                for i, aux in enumerate(dn_outputs['aux_outputs']):
+                    for loss in self.losses:
+                        if loss == 'masks' and 'pred_masks' not in aux:
+                            continue
+                        l_dict = self.get_loss(loss, aux, targets, dn_indices, dn_num_boxes)
+                        l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
+                        losses.update(l_dict)
+        
+        # Apply weights
+        for k in losses.keys():
+            if k in self.weight_dict:
+                losses[k] *= self.weight_dict[k]
+
 
         return losses
 
@@ -450,22 +489,49 @@ class RTDETRCriterion(nn.Module):
     def get_cdn_matched_indices(dn_meta, targets):
         """get_cdn_matched_indices
         """
-        dn_positive_idx, dn_num_group = dn_meta["dn_positive_idx"], dn_meta["dn_num_group"]
-        num_gts = [len(t['labels']) for t in targets]
-        device = targets[0]['labels'].device
-        
-        dn_match_indices = []
-        for i, num_gt in enumerate(num_gts):
-            if num_gt > 0:
-                gt_idx = torch.arange(num_gt, dtype=torch.int64, device=device)
-                gt_idx = gt_idx.tile(dn_num_group)
-                assert len(dn_positive_idx[i]) == len(gt_idx)
-                dn_match_indices.append((dn_positive_idx[i], gt_idx))
-            else:
-                dn_match_indices.append((torch.zeros(0, dtype=torch.int64, device=device), \
-                    torch.zeros(0, dtype=torch.int64,  device=device)))
-        
-        return dn_match_indices
+        if 'map_known_indice' in dn_meta: #MaskDINO style Denoising
+            batch_idx = dn_meta['batch_idx']
+            map_known_indice = dn_meta['map_known_indice']
+            known_lbs_bboxes = dn_meta['known_lbs_bboxes']
+            
+            known_indice = dn_meta['known_indice']
+            num_tgt = known_indice.numel()
+            
+            scalar = dn_meta['scalar']
+            pad_size = dn_meta['pad_size']
+            assert pad_size % scalar == 0
+            single_pad = pad_size // scalar
+
+            exc_idx = []
+            for i in range(len(targets)):
+                if len(targets[i]['labels']) > 0:
+                    t = torch.arange(0, len(targets[i]['labels'])).long().cuda()
+                    t = t.unsqueeze(0).repeat(scalar, 1)
+                    tgt_idx = t.flatten()
+                    output_idx = (torch.tensor(range(scalar)) * single_pad).long().cuda().unsqueeze(1) + t
+                    output_idx = output_idx.flatten()
+                else:
+                    output_idx = tgt_idx = torch.tensor([]).long().cuda()
+                exc_idx.append((output_idx, tgt_idx))
+            return exc_idx
+
+        else: # Original RT-DETR Denoising
+            dn_positive_idx, dn_num_group = dn_meta["dn_positive_idx"], dn_meta["dn_num_group"]
+            num_gts = [len(t['labels']) for t in targets]
+            device = targets[0]['labels'].device
+            
+            dn_match_indices = []
+            for i, num_gt in enumerate(num_gts):
+                if num_gt > 0:
+                    gt_idx = torch.arange(num_gt, dtype=torch.int64, device=device)
+                    gt_idx = gt_idx.tile(dn_num_group)
+                    assert len(dn_positive_idx[i]) == len(gt_idx)
+                    dn_match_indices.append((dn_positive_idx[i], gt_idx))
+                else:
+                    dn_match_indices.append((torch.zeros(0, dtype=torch.int64, device=device), \
+                        torch.zeros(0, dtype=torch.int64,  device=device)))
+            
+            return dn_match_indices
 
 
 
