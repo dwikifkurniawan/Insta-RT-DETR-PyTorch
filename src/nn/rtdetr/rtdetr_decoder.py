@@ -288,8 +288,8 @@ class RTDETRTransformer(nn.Module):
                  activation="relu",
                  num_denoising=100,
                  label_noise_ratio=0.5,
-                 box_noise_scale=1.0,
-                # box_noise_scale=0.4,
+                #  box_noise_scale=1.0,
+                 box_noise_scale=0.4,
                  learnt_init_query=False,
                  eval_spatial_size=None,
                  eval_idx=-1,
@@ -773,7 +773,7 @@ class RTDETRTransformer(nn.Module):
         (memory, det_spatial_shapes, level_start_index, mask_feature, query_selection_feats) = self._get_encoder_input(feats)
 
         bs = query_selection_feats.shape[0]
-        
+
         # # prepare denoising training
         # if self.training and self.num_denoising > 0:
         #     denoising_class, denoising_bbox_unact, attn_mask, dn_meta = \
@@ -790,12 +790,13 @@ class RTDETRTransformer(nn.Module):
         #query selectioon
         # target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
         #     self._get_decoder_input(memory, spatial_shapes, denoising_class, denoising_bbox_unact)
+        
         target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
             self._get_decoder_input(query_selection_feats, det_spatial_shapes)
         
         if self.training and self.num_denoising > 0:
             input_query_label, input_query_bbox, attn_mask, mask_dict = \
-                self.prepare_for_dn(targets, target, init_ref_points_unact.sigmoid(), bs)
+                self.prepare_for_dn(targets, None, None, bs)
         if mask_dict is not None and self.training:
             target = torch.concat([input_query_label, target], 1)
             init_ref_points_unact = torch.concat([input_query_bbox, init_ref_points_unact], 1)
