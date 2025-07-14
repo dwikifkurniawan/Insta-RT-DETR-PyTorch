@@ -768,6 +768,7 @@ class RTDETRTransformer(nn.Module):
 
     def forward(self, feats, targets=None):
         mask_dict = None
+        attn_mask = None
         
         # input projection and embedding
         # (memory, spatial_shapes, level_start_index) = self._get_encoder_input(feats) # flatten 
@@ -805,7 +806,8 @@ class RTDETRTransformer(nn.Module):
         if self.training:
             dn_results = self.prepare_for_dn(targets, None, None, bs)
             if dn_results is not None:
-                dn_label_query, dn_bbox_query, dn_meta = dn_results
+                dn_label_query, dn_bbox_query, dn_attn_mask, dn_meta = dn_results
+                attn_mask = dn_attn_mask
                 target = torch.cat([dn_label_query.unsqueeze(0).repeat(target.shape[0], 1, 1), target], dim=1)
                 init_ref_points_unact = torch.cat([dn_bbox_query.unsqueeze(0).repeat(init_ref_points_unact.shape[0], 1, 1), init_ref_points_unact], dim=1)
                 mask_dict = dn_meta
@@ -831,14 +833,6 @@ class RTDETRTransformer(nn.Module):
             ref_points_input = ref_points_detach.unsqueeze(2)
             query_pos_embed = self.query_pos_head(ref_points_detach)
 
-            attn_mask = None
-            if self.training and mask_dict is not None:
-                pad_size = mask_dict['pad_size']
-                tgt_size = pad_size + self.num_queries
-                attn_mask = torch.ones(tgt_size, tgt_size, device=target.device, dtype=torch.bool)
-                attn_mask[pad_size:, pad_size:] = False
-                attn_mask = attn_mask.repeat(self.nhead * target.shape[0], 1, 1)
-            
             # Update queries via self- and cross-attention
             # inter_queries = self.decoder.layers[i](inter_queries, ref_points_input, memory, det_spatial_shapes, level_start_index, attn_mask, None, query_pos_embed)
             inter_queries = self.decoder.layers[i](
