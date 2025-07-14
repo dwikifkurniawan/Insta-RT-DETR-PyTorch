@@ -14,7 +14,7 @@ def r50vd_backbone_segm(
         freeze_at=0, 
         return_idx=[0, 1, 2, 3], 
         num_stages=4, 
-        freeze_norm=True, 
+        freeze_norm=False, 
         pretrained=True):
     
     return PResNet(
