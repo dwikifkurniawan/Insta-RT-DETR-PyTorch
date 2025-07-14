@@ -808,8 +808,8 @@ class RTDETRTransformer(nn.Module):
             if dn_results is not None:
                 dn_label_query, dn_bbox_query, dn_attn_mask, dn_meta = dn_results
                 attn_mask = dn_attn_mask
-                target = torch.cat([dn_label_query.unsqueeze(0).repeat(target.shape[0], 1, 1), target], dim=1)
-                init_ref_points_unact = torch.cat([dn_bbox_query.unsqueeze(0).repeat(init_ref_points_unact.shape[0], 1, 1), init_ref_points_unact], dim=1)
+                target = torch.concat([dn_label_query, target], 1)
+                init_ref_points_unact = torch.concat([dn_bbox_query, init_ref_points_unact], 1)
                 mask_dict = dn_meta
         
         if self.mask_head:
