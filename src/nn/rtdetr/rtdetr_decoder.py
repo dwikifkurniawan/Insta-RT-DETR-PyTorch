@@ -767,7 +767,8 @@ class RTDETRTransformer(nn.Module):
 
 
     def forward(self, feats, targets=None):
-
+        mask_dict = None
+        
         # input projection and embedding
         # (memory, spatial_shapes, level_start_index) = self._get_encoder_input(feats) # flatten 
         (memory, det_spatial_shapes, level_start_index, mask_feature, query_selection_feats) = self._get_encoder_input(feats)
@@ -794,12 +795,20 @@ class RTDETRTransformer(nn.Module):
         target, init_ref_points_unact, enc_topk_bboxes, enc_topk_logits = \
             self._get_decoder_input(query_selection_feats, det_spatial_shapes)
         
-        if self.training and self.num_denoising > 0:
-            input_query_label, input_query_bbox, attn_mask, mask_dict = \
-                self.prepare_for_dn(targets, None, None, bs)
-        if mask_dict is not None and self.training:
-            target = torch.concat([input_query_label, target], 1)
-            init_ref_points_unact = torch.concat([input_query_bbox, init_ref_points_unact], 1)
+        # if self.training and self.num_denoising > 0:
+        #     input_query_label, input_query_bbox, attn_mask, mask_dict = \
+        #         self.prepare_for_dn(targets, None, None, bs)
+        # if mask_dict is not None and self.training:
+        #     target = torch.concat([input_query_label, target], 1)
+        #     init_ref_points_unact = torch.concat([input_query_bbox, init_ref_points_unact], 1)
+
+        if self.training:
+            dn_results = self.prepare_for_dn(targets, None, None, bs)
+            if dn_results is not None:
+                dn_label_query, dn_bbox_query, dn_meta = dn_results
+                target = torch.cat([dn_label_query.unsqueeze(0).repeat(target.shape[0], 1, 1), target], dim=1)
+                init_ref_points_unact = torch.cat([dn_bbox_query.unsqueeze(0).repeat(init_ref_points_unact.shape[0], 1, 1), init_ref_points_unact], dim=1)
+                mask_dict = dn_meta
         
         if self.mask_head:
             projected_mask_feature = self.mask_pixel_proj(mask_feature)
@@ -821,9 +830,27 @@ class RTDETRTransformer(nn.Module):
         for i in range(self.num_layers):
             ref_points_input = ref_points_detach.unsqueeze(2)
             query_pos_embed = self.query_pos_head(ref_points_detach)
+
+            attn_mask = None
+            if self.training and mask_dict is not None:
+                pad_size = mask_dict['pad_size']
+                tgt_size = pad_size + self.num_queries
+                attn_mask = torch.ones(tgt_size, tgt_size, device=target.device, dtype=torch.bool)
+                attn_mask[pad_size:, pad_size:] = False
+                attn_mask = attn_mask.repeat(self.nhead * target.shape[0], 1, 1)
             
             # Update queries via self- and cross-attention
-            inter_queries = self.decoder.layers[i](inter_queries, ref_points_input, memory, det_spatial_shapes, level_start_index, attn_mask, None, query_pos_embed)
+            # inter_queries = self.decoder.layers[i](inter_queries, ref_points_input, memory, det_spatial_shapes, level_start_index, attn_mask, None, query_pos_embed)
+            inter_queries = self.decoder.layers[i](
+                inter_queries, 
+                ref_points_input, 
+                memory, 
+                det_spatial_shapes, 
+                level_start_index, 
+                attn_mask, 
+                None, # memory_mask
+                query_pos_embed
+            )
             
             # Predict boxes and classes
             inter_bbox = F.sigmoid(self.dec_bbox_head[i](inter_queries) + inverse_sigmoid(ref_points_detach))
@@ -860,7 +887,7 @@ class RTDETRTransformer(nn.Module):
         #     if self.mask_head and len(out_masks) > 0:
         #         dn_out_masks, out_masks = torch.split(out_masks, dn_meta['dn_num_split'], dim=2)
 
-        out_logits, out_bboxes, out_masks = self.dn_post_process(out_logits, out_bboxes, mask_dict, out_masks) if self.training and mask_dict is not None else (out_logits, out_bboxes, out_masks)
+        out_logits, out_bboxes, out_masks = self.dn_post_process(out_logits, out_bboxes, mask_dict, out_masks)
 
         out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
         if self.mask_head and len(out_masks) > 0: 
