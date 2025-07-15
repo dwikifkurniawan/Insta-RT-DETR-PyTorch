@@ -110,6 +110,7 @@ class CocoEvaluator(object):
             masks = prediction["masks"]
 
             masks = masks > 0.5
+            masks = masks.cpu().numpy()
 
             scores = prediction["scores"].tolist()
             labels = prediction["labels"].tolist()

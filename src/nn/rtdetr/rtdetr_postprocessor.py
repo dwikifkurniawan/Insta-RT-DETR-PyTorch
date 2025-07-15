@@ -38,9 +38,11 @@ class RTDETRPostProcessor(nn.Module):
         logits, boxes = outputs['pred_logits'], outputs['pred_boxes']
         pred_masks = outputs.get('pred_masks', None)
 
+        batch_size = logits.shape[0]
+
         # Ini detection dari RT-DETR
-        scaled_boxes = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
-        scaled_boxes *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
+        scaled_boxes = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy') # convert boxes ke xyxy
+        scaled_boxes *= orig_target_sizes.repeat(1, 2).unsqueeze(1) # scale boxes ke ukuran asli
 
         if self.use_focal_loss:
             scores = F.sigmoid(logits)
@@ -58,31 +60,45 @@ class RTDETRPostProcessor(nn.Module):
                 top_scores, query_indices = torch.topk(top_scores, self.num_top_queries, dim=-1)
                 top_labels = torch.gather(top_labels, dim=1, index=query_indices)
                 selected_boxes = torch.gather(selected_boxes, dim=1, index=query_indices.unsqueeze(-1).tile(1, 1, 4))
+            else:
+                query_indices = torch.arange(top_scores.shape[1], device=logits.device).unsqueeze(0).expand(batch_size, -1)
         
         # segmentation
         results = []
-        for i in range(len(logits)):
+        for i in range(batch_size):
             result = {
                 'scores': top_scores[i],
                 'labels': top_labels[i],
                 'boxes': selected_boxes[i],
             }
 
-            if pred_masks is not None:
-                image_query_indices = query_indices[i]
-                selected_masks_raw = pred_masks[i, image_query_indices]
-
+            # proses mask
+            if pred_masks is not None and len(query_indices[i]) > 0:
+                selected_masks_raw = pred_masks[i, query_indices[i]]
                 height, width = orig_target_sizes[i].int().tolist()
                 
-                # output [N, 1, H, W]
+                # Apply sigmoid and upsample to target size
+                # Shape: [N, H_mask, W_mask] -> [N, 1, H_target, W_target]
+                mask_logits = selected_masks_raw.sigmoid()
+                
+                # Add channel dimension for interpolation
+                mask_logits = mask_logits.unsqueeze(1)  # [N, 1, H_mask, W_mask]
+                
+                # Interpolate to target size
                 upsampled_masks = F.interpolate(
-                    selected_masks_raw.sigmoid().unsqueeze(1),
+                    mask_logits,
                     size=(height, width),
                     mode='bilinear',
                     align_corners=False
                 )
-
-                result['masks'] = upsampled_masks > self.mask_threshold
+                
+                binary_masks = upsampled_masks > self.mask_threshold                
+                result['masks'] = binary_masks
+                
+            elif pred_masks is not None:
+                # No valid detections but masks are expected
+                height, width = orig_target_sizes[i].int().tolist()
+                result['masks'] = torch.empty(0, 1, height, width, device=logits.device, dtype=torch.bool)
 
             if self.remap_mscoco_category:
                 from ...data.coco import mscoco_label2category
