@@ -1,5 +1,10 @@
 """
 Copyright (c) 2023 lyuwenyu. All Rights Reserved.
+
+This file has been revised to merge the original RT-DETR detection
+post-processing logic with added support for instance segmentation masks.
+The mask output shape has been specifically adjusted to [N, 1, H, W]
+to conform to a fixed, legacy COCO evaluation script.
 """
 
 import torch 
@@ -7,11 +12,6 @@ import torch.nn as nn
 import torch.nn.functional as F 
 
 import torchvision
-
-
-def mod(a, b):
-    out = a - a // b * b
-    return out
 
 
 class RTDETRPostProcessor(nn.Module):
@@ -34,66 +34,67 @@ class RTDETRPostProcessor(nn.Module):
     def extra_repr(self) -> str:
         return f'use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}'
     
-    # def forward(self, outputs, orig_target_sizes):
     def forward(self, outputs, orig_target_sizes: torch.Tensor):
-        logits, boxes, pred_masks = outputs['pred_logits'], outputs['pred_boxes'], outputs.get('pred_masks', None)
-        
+        logits, boxes = outputs['pred_logits'], outputs['pred_boxes']
+        pred_masks = outputs.get('pred_masks', None)
+
+        # Ini detection dari RT-DETR
+        scaled_boxes = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
+        scaled_boxes *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
+
         if self.use_focal_loss:
-            scores = logits.sigmoid()
+            scores = F.sigmoid(logits)
             scores_flat = scores.flatten(1)
-            num_top = min(self.num_top_queries, scores_flat.shape[1])
-            top_scores, top_indices = torch.topk(scores_flat, num_top, dim=-1)
-            labels = top_indices % self.num_classes
+            top_scores, top_indices = torch.topk(scores_flat, self.num_top_queries, dim=-1)
+            top_labels = top_indices % self.num_classes
             query_indices = top_indices // self.num_classes
+            batch_indices = torch.arange(len(logits), device=logits.device).unsqueeze(1)
+            selected_boxes = scaled_boxes[batch_indices, query_indices]
         else: 
-            scores_softmax, labels = logits.softmax(-1)[..., :-1].max(-1)
-            top_scores, query_indices = scores_softmax.topk(self.num_top_queries, dim=-1)
-            labels = torch.gather(labels, 1, query_indices)
-
-        batch_indices = torch.arange(len(logits), device=logits.device).unsqueeze(1)
-        selected_boxes = boxes[batch_indices, query_indices]
-
-        # Scale boxes (bbox conversion directly to img scale)
-        scaled_boxes = torchvision.ops.box_convert(selected_boxes, 'cxcywh', 'xyxy')
-        img_h, img_w = orig_target_sizes[:, 0:1], orig_target_sizes[:, 1:2]
-        scale_fct = torch.cat([img_w, img_h, img_w, img_h], dim=1).unsqueeze(1)
-        scaled_boxes *= scale_fct
-
+            scores_softmax = F.softmax(logits)[:, :, :-1]
+            top_scores, top_labels = scores_softmax.max(dim=-1)
+            selected_boxes = scaled_boxes
+            if top_scores.shape[1] > self.num_top_queries:
+                top_scores, query_indices = torch.topk(top_scores, self.num_top_queries, dim=-1)
+                top_labels = torch.gather(top_labels, dim=1, index=query_indices)
+                selected_boxes = torch.gather(selected_boxes, dim=1, index=query_indices.unsqueeze(-1).tile(1, 1, 4))
+        
+        # segmentation
         results = []
         for i in range(len(logits)):
             result = {
                 'scores': top_scores[i],
-                'labels': labels[i],
-                'boxes': scaled_boxes[i],
+                'labels': top_labels[i],
+                'boxes': selected_boxes[i],
             }
 
             if pred_masks is not None:
-                selected_masks_raw = pred_masks[i, query_indices[i]]  # [num_top_queries, H_mask, W_mask]
-                masks_probs = selected_masks_raw.sigmoid().unsqueeze(1)   # [num_top_queries, 1, H, W]
+                image_query_indices = query_indices[i]
+                selected_masks_raw = pred_masks[i, image_query_indices]
 
-                height, width = orig_target_sizes[i].tolist()
+                height, width = orig_target_sizes[i].int().tolist()
+                
+                # output [N, 1, H, W]
                 upsampled_masks = F.interpolate(
-                    masks_probs,
+                    selected_masks_raw.sigmoid().unsqueeze(1),
                     size=(height, width),
                     mode='bilinear',
                     align_corners=False
-                ).squeeze(1)  # [num_top_queries, H, W]
+                )
 
-                binary_masks = upsampled_masks > self.mask_threshold
-                result['masks'] = binary_masks
+                result['masks'] = upsampled_masks > self.mask_threshold
 
             if self.remap_mscoco_category:
                 from ...data.coco import mscoco_label2category
                 result['labels'] = torch.tensor(
                     [mscoco_label2category[int(lbl)] for lbl in result['labels']],
-                    device=labels.device, 
-                    dtype=labels.dtype
+                    device=result['labels'].device, 
+                    dtype=result['labels'].dtype
                 )
 
             results.append(result)
         
         return results
-        
 
     def deploy(self, ):
         self.eval()
