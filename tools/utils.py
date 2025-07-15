@@ -225,7 +225,10 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
 
-        res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+        # res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+        # convert tensor ke cpu
+        res = {target['image_id'].item(): {k: v.cpu() for k, v in output.items()} 
+               for target, output in zip(targets, results)}
         if coco_evaluator is not None:
             coco_evaluator.update(res)
 
