@@ -763,7 +763,7 @@ class RTDETRTransformer(nn.Module):
         if denoising_class is not None:
             target = torch.concat([denoising_class, target], 1)
 
-        return target, reference_points_unact.detach(), enc_topk_bboxes, enc_topk_logits
+        return target, reference_points_unact, enc_topk_bboxes, enc_topk_logits
 
 
     def forward(self, feats, targets=None):
@@ -828,7 +828,9 @@ class RTDETRTransformer(nn.Module):
         #     attn_mask=attn_mask)
         out_bboxes, out_logits, out_masks = [], [], []
         inter_queries = target
-        ref_points_detach = F.sigmoid(init_ref_points_unact)
+        ref_points = F.sigmoid(init_ref_points_unact)
+        ref_points_detach = ref_points.detach()
+        # ref_points_detach = F.sigmoid(init_ref_points_unact)
         for i in range(self.num_layers):
             ref_points_input = ref_points_detach.unsqueeze(2)
             query_pos_embed = self.query_pos_head(ref_points_detach)
@@ -847,13 +849,15 @@ class RTDETRTransformer(nn.Module):
             )
             
             # Predict boxes and classes
-            inter_bbox = F.sigmoid(self.dec_bbox_head[i](inter_queries) + inverse_sigmoid(ref_points_detach))
+            inter_bbox_unact = self.dec_bbox_head[i](inter_queries) + inverse_sigmoid(ref_points)
+            inter_bbox = F.sigmoid(inter_bbox_unact)
             inter_logit = self.dec_score_head[i](inter_queries)
             
             if self.training:
                 out_logits.append(inter_logit)
                 out_bboxes.append(inter_bbox)
 
+            ref_points = inter_bbox
             ref_points_detach = inter_bbox.detach()
 
             # Predict masks using the efficient dot-product method
