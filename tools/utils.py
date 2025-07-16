@@ -230,7 +230,7 @@ def train_one_epoch(model: torch.nn.Module,
 #TODO This function too complex and slow because it from original repository, need to refactor
 @torch.no_grad()
 def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_ema=True, use_wandb=False):
-    has_saved_debug_images = False
+    has_printed_debug_info = False
     if criterion == None:
         criterion = rtdetr_criterion()
 
