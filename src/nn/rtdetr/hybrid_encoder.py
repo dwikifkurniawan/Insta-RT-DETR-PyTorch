@@ -212,7 +212,7 @@ class HybridEncoder(nn.Module):
             self.input_proj.append(proj)
 
         # lateral conv for mask feature head (stage 2)
-        self.lateral_convs = ConvNormLayer(
+        self.fusion_lateral_convs = ConvNormLayer(
             ch_in=self.in_channels[0],
             ch_out=self.hidden_dim,
             kernel_size=1,
@@ -364,7 +364,7 @@ class HybridEncoder(nn.Module):
 
         # fusion maskdino
         upsampled_p3 = F.interpolate(outs[0], size=feats[0].shape[2:], mode='bilinear', align_corners=False)
-        projected_p2 = self.lateral_convs(proj_feats[0])
+        projected_p2 = self.fusion_lateral_convs(proj_feats[0])
         fused_feat = projected_p2 + upsampled_p3
         fused_feat = self.fusion_output_conv(fused_feat)
 
