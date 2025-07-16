@@ -27,6 +27,29 @@ from src.nn.rtdetr.rtdetr_postprocessor import RTDETRPostProcessor
 from src.nn.rtdetr.utils import *
 import src.misc.dist_utils as dist_utils
 
+# ini helper grad smoke test
+def check_grad(model, layer_name):
+    try:
+        # Navigate to the layer using its name
+        module = model
+        for part in layer_name.split('.'):
+            module = getattr(module, part)
+        
+        # Get the first parameter of that layer
+        param = next(module.parameters())
+        
+        # Check if its gradient exists and what its magnitude is
+        if param.grad is not None:
+            grad_norm = param.grad.norm().item()
+            if grad_norm > 1e-9: # A very small number to avoid floating point noise
+                print(f"✅ GRADIENT CHECK: '{layer_name}' has a gradient norm of {grad_norm:.6f}. It is being updated.")
+            else:
+                print(f"❌ GRADIENT CHECK: '{layer_name}' has a near-zero gradient norm ({grad_norm:.6f}). It might not be learning.")
+        else:
+            print(f"❌ GRADIENT CHECK: Gradient for '{layer_name}' is None. It is DETACHED from the loss.")
+    except AttributeError:
+        print(f"❌ GRADIENT CHECK: Could not find layer named '{layer_name}'.")
+
 
 def fit(model, 
         weight_path, 
@@ -112,7 +135,8 @@ def train_one_epoch(model: torch.nn.Module,
     metric_logger = MetricLogger(data_loader, header=f'Epoch: [{epoch}]', print_freq=print_freq)
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
 
-    for samples, targets in metric_logger.log_every():
+    # for samples, targets in metric_logger.log_every():
+    for i_batch, (samples, targets) in enumerate(metric_logger.log_every()):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -127,8 +151,22 @@ def train_one_epoch(model: torch.nn.Module,
             # loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             scaler.scale(loss).backward()
 
+            # Check gradients on a few key layers after the first few iterations
+            scaler.unscale_(optimizer)
+            if i_batch == 10: # Run check on the 10th batch
+                print("\n--- RUNNING GRADIENT SMOKE TEST ---")
+                # We need to access the model inside the DDP wrapper if it exists
+                model_to_check = model.module if hasattr(model, 'module') else model
+                # Check the last layer of the box prediction head
+                check_grad(model_to_check, "decoder.dec_bbox_head.5.layers.2") 
+                # Check the first layer of the mask query embed head
+                check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
+                # Check the fusion output conv in the encoder
+                check_grad(model_to_check, "encoder.fusion_refine_conv.conv")
+                print("--- END OF SMOKE TEST ---\n")
+
             if max_norm > 0:
-                scaler.unscale_(optimizer)
+                # scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
             scaler.step(optimizer)
@@ -143,6 +181,15 @@ def train_one_epoch(model: torch.nn.Module,
             # loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             optimizer.zero_grad()
             loss.backward()
+
+            # Check gradients on a few key layers after the first few iterations
+            if i_batch == 10: # Run check on the 10th batch
+                print("\n--- RUNNING GRADIENT SMOKE TEST ---")
+                model_to_check = model.module if hasattr(model, 'module') else model
+                check_grad(model_to_check, "decoder.dec_bbox_head.5.layers.2")
+                check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
+                check_grad(model_to_check, "encoder.fusion_refine_conv.conv")
+                print("--- END OF SMOKE TEST ---\n")
             
             if max_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
@@ -215,12 +262,12 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
     # print(f"Coco evaluator: {coco_evaluator}")
     # print(f"metric logger: {metric_logger}")
 
-    # -- DEBUG --
-    segm_coco_eval = coco_evaluator.coco_eval['segm']
-    segm_coco_eval.params.iouThrs = np.linspace(.1, 0.5, 5) # Check at IoU = 0.1, 0.2, 0.3, 0.4, 0.5
-    print("\n--- DEBUGGING: Using lenient IoU thresholds for segmentation evaluation ---")
-    print(f"--- IoU Thresholds: {segm_coco_eval.params.iouThrs} ---\n")
-    # -- END DEBUG --
+    # # -- DEBUG --
+    # segm_coco_eval = coco_evaluator.coco_eval['segm']
+    # segm_coco_eval.params.iouThrs = np.linspace(.1, 0.5, 5) # Check at IoU = 0.1, 0.2, 0.3, 0.4, 0.5
+    # print("\n--- DEBUGGING: Using lenient IoU thresholds for segmentation evaluation ---")
+    # print(f"--- IoU Thresholds: {segm_coco_eval.params.iouThrs} ---\n")
+    # # -- END DEBUG --
 
     for samples, targets in metric_logger.log_every():
         samples = samples.to(device)
