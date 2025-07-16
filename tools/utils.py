@@ -272,7 +272,8 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
     # print(f"--- IoU Thresholds: {segm_coco_eval.params.iouThrs} ---\n")
     # # -- END DEBUG --
 
-    for samples, targets in metric_logger.log_every():
+    # for samples, targets in metric_logger.log_every():
+    for i_batch, (samples, targets) in enumerate(metric_logger.log_every()):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -283,41 +284,70 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         results = postprocessor(outputs, orig_target_sizes)
         # print(f"[DEBUG] results: {results}")
 
-        # --- START DEBUGGING BLOCK ---
-        if not has_saved_debug_images and dist_utils.is_main_process():
-            print("\n--- Saving Final Debug Images ---")
-            
-            # 1. Save the Predicted Mask
+        # --- START: SERVERLESS DEBUGGING BLOCK ---
+        # We will print info only for the first batch of the validation run
+        if i_batch == 0 and not has_printed_debug_info and dist_utils.is_main_process():
+            print("\n\n" + "="*80)
+            print("--- STARTING MASK DEBUGGING FOR FIRST BATCH ---")
+            print("="*80)
+
             try:
-                pred_result = results[0]
-                pred_scores = pred_result['scores']
-                keep = pred_scores > 0.3
-                if keep.sum() > 0:
-                    top_pred_mask = pred_result['masks'][keep][0].squeeze().cpu().numpy()
-                    pred_img = Image.fromarray((top_pred_mask * 255).astype(np.uint8))
-                    pred_img.save("debug_final_pred_mask.png")
-                    print("✅ Saved 'debug_final_pred_mask.png'")
+                # --- 1. Analyze the Ground Truth Mask ---
+                print("\n[1] Analyzing Ground Truth (GT) Mask...")
+                gt_target = targets[0] # The target dict for the first image
+                gt_masks = gt_target['masks'] # The mask tensor from the dataloader
+
+                print(f"  - GT mask tensor shape from dataloader: {gt_masks.shape}")
+                print(f"  - GT mask tensor dtype: {gt_masks.dtype}")
+                if gt_masks.numel() > 0:
+                    # Take the first GT mask for this image
+                    gt_mask_single = gt_masks[0]
+                    print(f"  - Analyzing the first GT mask (shape: {gt_mask_single.shape})")
+                    print(f"  - GT mask values (min, max, mean): {gt_mask_single.min().item():.2f}, {gt_mask_single.max().item():.2f}, {gt_mask_single.float().mean().item():.4f}")
+                    # Print a small snippet from the center of the mask
+                    h, w = gt_mask_single.shape
+                    snippet = gt_mask_single[h//2:h//2+8, w//2:w//2+8].int()
+                    print(f"  - GT mask center snippet (8x8):\n{snippet.cpu().numpy()}")
                 else:
-                    print("⚠️ No prediction above threshold to save.")
-            except Exception as e:
-                print(f"❌ Error saving predicted mask: {e}")
+                    print("  - No GT masks for this image.")
 
-            # 2. Save the Ground Truth Mask from the `targets` list
-            try:
-                # This is the GT mask as it comes from the dataloader
-                gt_mask_tensor = targets[0]['masks'] 
-                print(f"GT mask tensor shape from dataloader: {gt_mask_tensor.shape}, dtype: {gt_mask_tensor.dtype}")
-                # We take the first mask if there are multiple objects
-                top_gt_mask = gt_mask_tensor[0].cpu().numpy()
-                gt_img = Image.fromarray((top_gt_mask * 255).astype(np.uint8))
-                gt_img.save("debug_final_gt_mask.png")
-                print("✅ Saved 'debug_final_gt_mask.png'")
-            except Exception as e:
-                print(f"❌ Error saving ground truth mask: {e}")
+                # --- 2. Analyze the Predicted Mask ---
+                print("\n[2] Analyzing Predicted Mask...")
+                pred_result = results[0] # The post-processed result for the first image
+                pred_scores = pred_result['scores']
+                
+                if pred_scores.numel() > 0:
+                    # Find the prediction with the highest score
+                    top_score_idx = torch.argmax(pred_scores)
+                    top_score = pred_scores[top_score_idx]
+                    
+                    print(f"  - Highest prediction score: {top_score.item():.4f}")
+                    
+                    pred_masks = pred_result['masks'] # Shape: [K, 1, H, W], dtype=bool
+                    top_pred_mask = pred_masks[top_score_idx].squeeze() # Shape: [H, W]
 
-            has_saved_debug_images = True
-            print("--- End Debugging ---\n")
-        # --- END DEBUGGING BLOCK ---
+                    print(f"  - Predicted mask tensor shape: {top_pred_mask.shape}")
+                    print(f"  - Predicted mask tensor dtype: {top_pred_mask.dtype}")
+                    print(f"  - Predicted mask values (min, max, mean): {top_pred_mask.min().item()}, {top_pred_mask.max().item()}, {top_pred_mask.float().mean().item():.4f}")
+
+                    # Print a small snippet from the center of the mask
+                    h, w = top_pred_mask.shape
+                    snippet = top_pred_mask[h//2:h//2+8, w//2:w//2+8].int()
+                    print(f"  - Predicted mask center snippet (8x8):\n{snippet.cpu().numpy()}")
+                else:
+                    print("  - No predictions made for this image.")
+
+            except Exception as e:
+                print(f"\n❌ An error occurred during debugging: {e}")
+                import traceback
+                traceback.print_exc()
+
+            print("\n" + "="*80)
+            print("--- END OF MASK DEBUGGING ---")
+            print("="*80 + "\n\n")
+            
+            has_printed_debug_info = True # Ensure this only runs once
+        # --- END: SERVERLESS DEBUGGING BLOCK ---
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
         # # convert tensor ke cpu
