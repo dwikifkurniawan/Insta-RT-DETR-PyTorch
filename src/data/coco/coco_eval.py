@@ -115,10 +115,20 @@ class CocoEvaluator(object):
             scores = prediction["scores"].tolist()
             labels = prediction["labels"].tolist()
 
-            rles = [
-                mask_util.encode(np.array(mask[0, :, :, np.newaxis], dtype=np.uint8, order="F"))[0]
-                for mask in masks
-            ]
+            # rles = [
+            #     mask_util.encode(np.array(mask[0, :, :, np.newaxis], dtype=np.uint8, order="F"))[0]
+            #     for mask in masks
+            # ]
+
+            rles = []
+            for mask_tensor in masks:
+                # mask_tensor shape [1, H, W]
+                squeezed_mask = mask_tensor.squeeze()
+                uint8_mask = squeezed_mask.to(torch.uint8).numpy()
+                fortran_mask = np.asfortranarray(uint8_mask)
+                rle = mask_util.encode(fortran_mask)
+
+                rles.append(rle)
             for rle in rles:
                 rle["counts"] = rle["counts"].decode("utf-8")
 
