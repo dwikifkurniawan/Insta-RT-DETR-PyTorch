@@ -374,12 +374,6 @@ class RTDETRTransformer(nn.Module):
         # new mask head
         if self.mask_head:
             self.mask_query_embed = MLP(hidden_dim, hidden_dim, hidden_dim, 3)
-            # self.mask_pixel_embed = MLP(hidden_dim, hidden_dim, hidden_dim, 3)
-            self.mask_pixel_proj = nn.Sequential(
-                nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1),
-                nn.ReLU(inplace=True),
-                nn.Conv2d(hidden_dim, hidden_dim, kernel_size=1),
-            )
 
         # init encoder output anchors and valid_mask
         if self.eval_spatial_size:
@@ -411,12 +405,6 @@ class RTDETRTransformer(nn.Module):
             for p in self.mask_query_embed.parameters():
                 if p.dim() > 1:
                     nn.init.xavier_uniform_(p)
-        
-            for m in self.mask_pixel_proj.modules():
-                if isinstance(m, nn.Conv2d):
-                    nn.init.xavier_uniform_(m.weight)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
 
             # for m in [self.mask_query_embed, self.mask_pixel_embed]:
             #     for p in m.parameters():
@@ -811,9 +799,6 @@ class RTDETRTransformer(nn.Module):
                 target = torch.concat([dn_label_query, target], 1)
                 init_ref_points_unact = torch.concat([dn_bbox_query, init_ref_points_unact], 1)
                 mask_dict = dn_meta
-        
-        if self.mask_head:
-            projected_mask_feature = self.mask_pixel_proj(mask_feature)
 
         # decoder
         # out_bboxes, out_logits = self.decoder(
@@ -863,7 +848,7 @@ class RTDETRTransformer(nn.Module):
             # Predict masks using the efficient dot-product method
             if self.mask_head:
                 mask_query_embedding = self.mask_query_embed(inter_queries)
-                mask_logits = torch.einsum('bnc,bchw->bnhw', mask_query_embedding, projected_mask_feature)
+                mask_logits = torch.einsum('bnc,bchw->bnhw', mask_query_embedding, mask_feature)
                 if self.training: 
                     out_masks.append(mask_logits)
         

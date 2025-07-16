@@ -211,10 +211,30 @@ class HybridEncoder(nn.Module):
                 nn.BatchNorm2d(hidden_dim))
             self.input_proj.append(proj)
 
-        self.mask_feature_head = nn.Sequential(
-            ConvNormLayer(hidden_dim, hidden_dim, kernel_size=3, stride=1, act=act),
-            ConvNormLayer(hidden_dim, hidden_dim, kernel_size=3, stride=1, act=act),
-            ConvNormLayer(hidden_dim, hidden_dim, kernel_size=3, stride=1, act=act),
+        # lateral conv for mask feature head (stage 2)
+        self.lateral_convs = ConvNormLayer(
+            ch_in=self.in_channels[0],
+            ch_out=self.hidden_dim,
+            kernel_size=1,
+            stride=1,
+            act=act
+        )
+
+        # fusion output conv for mask feature head (stage 2)
+        self.fusion_output_conv = ConvNormLayer(
+            ch_in=self.hidden_dim,
+            ch_out=self.hidden_dim,
+            kernel_size=3,
+            stride=1,
+            act=act
+        )
+
+        self.mask_features = nn.Conv2d(
+            in_channels=self.hidden_dim,
+            out_channels=self.hidden_dim,
+            kernel_size=1,
+            stride=1,
+            padding=0
         )
 
         # encoder transformer
@@ -261,6 +281,12 @@ class HybridEncoder(nn.Module):
                     self.hidden_dim, self.pe_temperature)
                 setattr(self, f'pos_embed{idx}', pos_embed)
                 # self.register_buffer(f'pos_embed{idx}', pos_embed)
+        
+        if hasattr(self, 'mask_features'):
+            nn.init.xavier_uniform_(self.mask_features.weight)
+            # Initialize bias to zero.
+            if self.mask_features.bias is not None:
+                nn.init.constant_(self.mask_features.bias, 0)
 
     @staticmethod
     def build_2d_sincos_position_embedding(w, h, embed_dim=256, temperature=10000.):
@@ -287,7 +313,7 @@ class HybridEncoder(nn.Module):
         proj_feats = [self.input_proj[i](feat) for i, feat in enumerate(feats)]
         
         # mask feature head (stage 2)
-        mask_feature = self.mask_feature_head(proj_feats[0]) # This is P2_mask
+        # mask_feature = self.mask_feature_head(proj_feats[0]) # This is P2_mask
         
         det_feats = proj_feats[1:]
 
@@ -334,8 +360,15 @@ class HybridEncoder(nn.Module):
 
 
         # add mask feature to the first output
-        final_outs = [mask_feature] + outs
+        # final_outs = [mask_feature] + outs
 
+        # fusion maskdino
+        upsampled_p3 = F.interpolate(outs[0], size=feats[0].shape[2:], mode='bilinear', align_corners=False)
+        projected_p2 = self.lateral_convs(proj_feats[0])
+        fused_feat = projected_p2 + upsampled_p3
+        fused_feat = self.fusion_output_conv(fused_feat)
+
+        final_outs = [fused_feat] + outs
         # final_outs => p2_mask, p3, p4, p5
 
         return final_outs
