@@ -15,6 +15,7 @@ from torch.cuda.amp import GradScaler
 import torch.optim.lr_scheduler as lr_schedulers
 import torch.amp 
 import wandb
+import numpy as np
 
 
 from src.zoo import rtdetr_criterion
@@ -213,6 +214,13 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
     # print(f"[DEBUG] postprocessor: {postprocessor}")
     # print(f"Coco evaluator: {coco_evaluator}")
     # print(f"metric logger: {metric_logger}")
+
+    # -- DEBUG --
+    segm_coco_eval = coco_evaluator.coco_eval['segm']
+    segm_coco_eval.params.iouThrs = np.linspace(.1, 0.5, 5) # Check at IoU = 0.1, 0.2, 0.3, 0.4, 0.5
+    print("\n--- DEBUGGING: Using lenient IoU thresholds for segmentation evaluation ---")
+    print(f"--- IoU Thresholds: {segm_coco_eval.params.iouThrs} ---\n")
+    # -- END DEBUG --
 
     for samples, targets in metric_logger.log_every():
         samples = samples.to(device)
