@@ -11,6 +11,7 @@ import datetime
 from typing import Iterable
 
 import torch
+import torchvision
 from torch.cuda.amp import GradScaler
 import torch.optim.lr_scheduler as lr_schedulers
 import torch.amp 
