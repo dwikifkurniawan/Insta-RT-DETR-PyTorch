@@ -223,7 +223,7 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
-        print(f"[DEBUG] results: {results}")
+        # print(f"[DEBUG] results: {results}")
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
         # # convert tensor ke cpu
