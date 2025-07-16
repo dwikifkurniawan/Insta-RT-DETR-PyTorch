@@ -121,9 +121,9 @@ def train_one_epoch(model: torch.nn.Module,
                 outputs = model(samples, targets)
             loss_dict = criterion(outputs, targets)
 
-            # loss = sum(loss_dict.values())
-            weight_dict = criterion.weight_dict
-            loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+            loss = sum(loss_dict.values())
+            # weight_dict = criterion.weight_dict
+            # loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             scaler.scale(loss).backward()
 
             if max_norm > 0:
@@ -137,9 +137,9 @@ def train_one_epoch(model: torch.nn.Module,
             outputs = model(samples, targets)
             loss_dict = criterion(outputs, targets)
 
-            # loss = sum(loss_dict.values())
-            weight_dict = criterion.weight_dict
-            loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+            loss = sum(loss_dict.values())
+            # weight_dict = criterion.weight_dict
+            # loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             optimizer.zero_grad()
             loss.backward()
             
@@ -155,8 +155,7 @@ def train_one_epoch(model: torch.nn.Module,
         # loss_dict_reduced = reduce_dict(loss_dict)
         # loss_value = sum(loss_dict_reduced.values())
         loss_dict_reduced = reduce_dict(loss_dict)
-        loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        loss_dict_reduced_scaled = {k: v for k, v in loss_dict_reduced.items()}
         total_loss_reduced_scaled = sum(loss_dict_reduced_scaled.values())
         loss_value = total_loss_reduced_scaled.item()
 
@@ -211,7 +210,7 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
     coco_evaluator = CocoEvaluator(base_ds, iou_types)
     metric_logger = MetricLogger(val_dataloader, header='Test:',)
 
-    print(f"[DEBUG] postprocessor: {postprocessor}")
+    # print(f"[DEBUG] postprocessor: {postprocessor}")
     # print(f"Coco evaluator: {coco_evaluator}")
     # print(f"metric logger: {metric_logger}")
 
@@ -224,6 +223,7 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
+        print(f"[DEBUG] results: {results}")
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
         # # convert tensor ke cpu
