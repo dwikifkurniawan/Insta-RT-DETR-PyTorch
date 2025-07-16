@@ -162,7 +162,7 @@ def train_one_epoch(model: torch.nn.Module,
                 # Check the first layer of the mask query embed head
                 check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
                 # Check the fusion output conv in the encoder
-                check_grad(model_to_check, "encoder.fusion_refine_conv.conv")
+                check_grad(model_to_check, "encoder.fusion_output_conv.conv")
                 print("--- END OF SMOKE TEST ---\n")
 
             if max_norm > 0:
