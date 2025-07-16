@@ -91,7 +91,15 @@ class ConvertBoxes(T.Transform):
             inpt = convert_to_tv_tensor(inpt, key='boxes', box_format=self.fmt.upper(), spatial_size=spatial_size)
             
         if self.normalize:
-            inpt = inpt / torch.tensor(spatial_size[::-1]).tile(2)[None]
+            h, w = 640, 640
+            if inpt.shape[-1] == 4:
+                # For formats like xyxy, cxcywh, xywh
+                norm_tensor = torch.tensor([w, h, w, h], device=inpt.device, dtype=inpt.dtype)
+            else: # For formats like cxcy
+                norm_tensor = torch.tensor([w, h], device=inpt.device, dtype=inpt.dtype)
+
+            inpt = inpt / norm_tensor
+            # inpt = inpt / torch.tensor(spatial_size[::-1]).tile(2)[None]
 
         return inpt
 
