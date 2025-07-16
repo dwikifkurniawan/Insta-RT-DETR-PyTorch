@@ -75,7 +75,8 @@ class RTDETRPostProcessor(nn.Module):
             # proses mask
             if pred_masks is not None and len(query_indices[i]) > 0:
                 selected_masks_raw = pred_masks[i, query_indices[i]]
-                height, width = orig_target_sizes[i].int().tolist()
+                # height, width = orig_target_sizes[i].int().tolist()
+                eval_size = (640, 640)
                 
                 # Apply sigmoid and upsample to target size
                 # Shape: [N, H_mask, W_mask] -> [N, 1, H_target, W_target]
@@ -87,7 +88,7 @@ class RTDETRPostProcessor(nn.Module):
                 # Interpolate to target size
                 upsampled_masks = F.interpolate(
                     mask_logits,
-                    size=(height, width),
+                    size=eval_size,
                     mode='bilinear',
                     align_corners=False
                 )
@@ -97,8 +98,9 @@ class RTDETRPostProcessor(nn.Module):
                 
             elif pred_masks is not None:
                 # No valid detections but masks are expected
-                height, width = orig_target_sizes[i].int().tolist()
-                result['masks'] = torch.empty(0, 1, height, width, device=logits.device, dtype=torch.bool)
+                # height, width = orig_target_sizes[i].int().tolist()
+                eval_size = (640, 640)
+                result['masks'] = torch.empty(0, 1, eval_size[0], eval_size[1], device=logits.device, dtype=torch.bool)
 
             if self.remap_mscoco_category:
                 from ...data.coco import mscoco_label2category
