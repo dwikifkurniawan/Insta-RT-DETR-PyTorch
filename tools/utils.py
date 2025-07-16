@@ -16,6 +16,8 @@ import torch.optim.lr_scheduler as lr_schedulers
 import torch.amp 
 import wandb
 import numpy as np
+from PIL import Image
+
 
 
 from src.zoo import rtdetr_criterion
@@ -135,8 +137,8 @@ def train_one_epoch(model: torch.nn.Module,
     metric_logger = MetricLogger(data_loader, header=f'Epoch: [{epoch}]', print_freq=print_freq)
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
 
-    # for samples, targets in metric_logger.log_every():
-    for i_batch, (samples, targets) in enumerate(metric_logger.log_every()):
+    for samples, targets in metric_logger.log_every():
+    # for i_batch, (samples, targets) in enumerate(metric_logger.log_every()):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -151,19 +153,19 @@ def train_one_epoch(model: torch.nn.Module,
             # loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             scaler.scale(loss).backward()
 
-            # Check gradients on a few key layers after the first few iterations
-            scaler.unscale_(optimizer)
-            if i_batch == 10: # Run check on the 10th batch
-                print("\n--- RUNNING GRADIENT SMOKE TEST ---")
-                # We need to access the model inside the DDP wrapper if it exists
-                model_to_check = model.module if hasattr(model, 'module') else model
-                # Check the last layer of the box prediction head
-                check_grad(model_to_check, "decoder.dec_bbox_head.5.layers.2") 
-                # Check the first layer of the mask query embed head
-                check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
-                # Check the fusion output conv in the encoder
-                check_grad(model_to_check, "encoder.fusion_output_conv.conv")
-                print("--- END OF SMOKE TEST ---\n")
+            # # Check gradients on a few key layers after the first few iterations
+            # scaler.unscale_(optimizer)
+            # if i_batch == 10: # Run check on the 10th batch
+            #     print("\n--- RUNNING GRADIENT SMOKE TEST ---")
+            #     # We need to access the model inside the DDP wrapper if it exists
+            #     model_to_check = model.module if hasattr(model, 'module') else model
+            #     # Check the last layer of the box prediction head
+            #     check_grad(model_to_check, "decoder.dec_bbox_head.5.layers.2") 
+            #     # Check the first layer of the mask query embed head
+            #     check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
+            #     # Check the fusion output conv in the encoder
+            #     check_grad(model_to_check, "encoder.fusion_output_conv.conv")
+            #     print("--- END OF SMOKE TEST ---\n")
 
             if max_norm > 0:
                 # scaler.unscale_(optimizer)
@@ -182,14 +184,14 @@ def train_one_epoch(model: torch.nn.Module,
             optimizer.zero_grad()
             loss.backward()
 
-            # Check gradients on a few key layers after the first few iterations
-            if i_batch == 10: # Run check on the 10th batch
-                print("\n--- RUNNING GRADIENT SMOKE TEST ---")
-                model_to_check = model.module if hasattr(model, 'module') else model
-                check_grad(model_to_check, "decoder.dec_bbox_head.5.layers.2")
-                check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
-                check_grad(model_to_check, "encoder.fusion_refine_conv.conv")
-                print("--- END OF SMOKE TEST ---\n")
+            # # Check gradients on a few key layers after the first few iterations
+            # if i_batch == 10: # Run check on the 10th batch
+            #     print("\n--- RUNNING GRADIENT SMOKE TEST ---")
+            #     model_to_check = model.module if hasattr(model, 'module') else model
+            #     check_grad(model_to_check, "decoder.dec_bbox_head.5.layers.2")
+            #     check_grad(model_to_check, "decoder.mask_query_embed.layers.0")
+            #     check_grad(model_to_check, "encoder.fusion_refine_conv.conv")
+            #     print("--- END OF SMOKE TEST ---\n")
             
             if max_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
@@ -228,6 +230,7 @@ def train_one_epoch(model: torch.nn.Module,
 #TODO This function too complex and slow because it from original repository, need to refactor
 @torch.no_grad()
 def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_ema=True, use_wandb=False):
+    has_saved_debug_images = False
     if criterion == None:
         criterion = rtdetr_criterion()
 
@@ -279,6 +282,42 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
         # print(f"[DEBUG] results: {results}")
+
+        # --- START DEBUGGING BLOCK ---
+        if not has_saved_debug_images and dist_utils.is_main_process():
+            print("\n--- Saving Final Debug Images ---")
+            
+            # 1. Save the Predicted Mask
+            try:
+                pred_result = results[0]
+                pred_scores = pred_result['scores']
+                keep = pred_scores > 0.3
+                if keep.sum() > 0:
+                    top_pred_mask = pred_result['masks'][keep][0].squeeze().cpu().numpy()
+                    pred_img = Image.fromarray((top_pred_mask * 255).astype(np.uint8))
+                    pred_img.save("debug_final_pred_mask.png")
+                    print("✅ Saved 'debug_final_pred_mask.png'")
+                else:
+                    print("⚠️ No prediction above threshold to save.")
+            except Exception as e:
+                print(f"❌ Error saving predicted mask: {e}")
+
+            # 2. Save the Ground Truth Mask from the `targets` list
+            try:
+                # This is the GT mask as it comes from the dataloader
+                gt_mask_tensor = targets[0]['masks'] 
+                print(f"GT mask tensor shape from dataloader: {gt_mask_tensor.shape}, dtype: {gt_mask_tensor.dtype}")
+                # We take the first mask if there are multiple objects
+                top_gt_mask = gt_mask_tensor[0].cpu().numpy()
+                gt_img = Image.fromarray((top_gt_mask * 255).astype(np.uint8))
+                gt_img.save("debug_final_gt_mask.png")
+                print("✅ Saved 'debug_final_gt_mask.png'")
+            except Exception as e:
+                print(f"❌ Error saving ground truth mask: {e}")
+
+            has_saved_debug_images = True
+            print("--- End Debugging ---\n")
+        # --- END DEBUGGING BLOCK ---
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
         # # convert tensor ke cpu
