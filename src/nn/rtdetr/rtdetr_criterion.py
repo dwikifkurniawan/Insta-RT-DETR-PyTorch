@@ -434,24 +434,6 @@ class RTDETRCriterion(nn.Module):
                     l_dict = {k + f'_aux_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
-        # In case of cdn auxiliary losses. For rtdetr (commented out)
-        # if 'dn_aux_outputs' in outputs:
-        #     assert 'dn_meta' in outputs, ''
-        #     indices = self.get_cdn_matched_indices(outputs['dn_meta'], targets)
-        #     dn_num_boxes = num_boxes * outputs['dn_meta']['dn_num_group']
-        #     for i, aux_outputs in enumerate(outputs['dn_aux_outputs']):
-        #         for loss in self.losses:
-        #             if loss == 'masks' and 'pred_masks' not in aux_outputs:
-        #                 continue
-        #             # if loss == 'masks':
-        #             #     # Intermediate masks losses are too costly to compute, we ignore them.
-        #             #     continue
-
-        #             l_dict = self.get_loss(loss, aux_outputs, targets, indices, dn_num_boxes, **kwargs)
-        #             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
-        #             l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
-        #             losses.update(l_dict)
-
         # Denoising losses following the logic MaskDINO
         if 'dn_aux_outputs' in outputs:
             dn_meta = outputs['dn_meta']
@@ -465,6 +447,7 @@ class RTDETRCriterion(nn.Module):
                 if loss == 'masks' and 'pred_masks' not in dn_outputs:
                     continue
                 l_dict = self.get_loss(loss, dn_outputs, targets, dn_indices, dn_num_boxes)
+                l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                 l_dict = {k + '_dn': v for k, v in l_dict.items()}
                 losses.update(l_dict)
             
@@ -474,14 +457,9 @@ class RTDETRCriterion(nn.Module):
                         if loss == 'masks' and 'pred_masks' not in aux:
                             continue
                         l_dict = self.get_loss(loss, aux, targets, dn_indices, dn_num_boxes)
+                        l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                         l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
                         losses.update(l_dict)
-        
-        # Apply weights
-        for k in losses.keys():
-            if k in self.weight_dict:
-                losses[k] *= self.weight_dict[k]
-
 
         return losses
 
