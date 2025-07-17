@@ -3,7 +3,7 @@ Copyright (c) 2025 int11. All Rights Reserved.
 """
 
 import torch
-from src.data.coco.coco_dataset import CocoDetection_share_memory, CocoDetection
+from src.data.coco.coco_dataset import CocoDetection_share_memory
 from src.data import transforms as T
 
 
@@ -40,16 +40,14 @@ def coco_val_dataset(
         img_folder="./dataset/coco/val2017/",
         ann_file="./dataset/coco/annotations/instances_val2017.json",
         range_num=None,
-        # dataset_class=CocoDetection_share_memory,
-        dataset_class=CocoDetection,
+        dataset_class=CocoDetection_share_memory,
         **kwargs):
     
     val_dataset = dataset_class(
         img_folder=img_folder,
         ann_file=ann_file,
-        transforms=T.Compose([
-            # T.Resize(size=[640, 640]), 
-            T.ConvertPILImage(dtype='float32', scale=True)]),
+        transforms=T.Compose([T.Resize(size=[640, 640]), 
+                              T.ConvertPILImage(dtype='float32', scale=True)]),
         return_masks=True,
         remap_mscoco_category=True,
         **kwargs)

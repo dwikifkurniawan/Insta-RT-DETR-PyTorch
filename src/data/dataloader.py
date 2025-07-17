@@ -79,12 +79,10 @@ class BatchImageCollateFuncion(BaseCollateFunction):
         # self.interpolation = interpolation
 
     def __call__(self, items):
-        # images = torch.cat([x[0][None] for x in items], dim=0)
-        # targets = [x[1] for x in items]
+        images = torch.cat([x[0][None] for x in items], dim=0)
+        targets = [x[1] for x in items]
 
-        if self.scales is not None and self.epoch < self.stop_epoch and self.epoch != -1:
-            images = torch.cat([x[0][None] for x in items], dim=0)
-            targets = [x[1] for x in items]
+        if self.scales is not None and self.epoch < self.stop_epoch:
             # sz = random.choice(self.scales)
             # sz = [sz] if isinstance(sz, int) else list(sz)
             # VF.resize(inpt, sz, interpolation=self.interpolation)
@@ -96,21 +94,5 @@ class BatchImageCollateFuncion(BaseCollateFunction):
                     tg['masks'] = F.interpolate(tg['masks'], size=sz, mode='nearest')
                 # raise NotImplementedError('')
 
-            return images, targets
-        
-        else:
-            max_h = max(item[0].shape[1] for item in items)
-            max_w = max(item[0].shape[2] for item in items)
+        return images, targets
 
-            batch_size = len(items)
-            C, dtype = items[0][0].shape[0], items[0][0].dtype
-            padded_images = torch.zeros((batch_size, C, max_h, max_w), dtype=dtype)
-
-            for i, item in enumerate(items):
-                image = item[0]
-                h, w = image.shape[1], image.shape[2]
-                padded_images[i, :, :h, :w] = image
-
-            targets = [item[1] for item in items]
-            
-            return padded_images, targets

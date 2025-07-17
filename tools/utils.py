@@ -278,11 +278,11 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        fixed_size_input = F.interpolate(samples, size=(640, 640), mode='bilinear', align_corners=False)
+        # fixed_size_input = F.interpolate(samples, size=(640, 640), mode='bilinear', align_corners=False)
 
         with torch.autocast(device_type=device.type, enabled=use_amp == True and device.type == 'cuda'):
-            # outputs = model(samples)
-            outputs = model(fixed_size_input)
+            outputs = model(samples)
+            # outputs = model(fixed_size_input)
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
