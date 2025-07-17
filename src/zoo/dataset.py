@@ -46,8 +46,9 @@ def coco_val_dataset(
     val_dataset = dataset_class(
         img_folder=img_folder,
         ann_file=ann_file,
-        transforms=T.Compose([T.Resize(size=[640, 640]), 
-                              T.ConvertPILImage(dtype='float32', scale=True)]),
+        transforms=T.Compose([
+            # T.Resize(size=[640, 640]), 
+            T.ConvertPILImage(dtype='float32', scale=True)]),
         return_masks=True,
         remap_mscoco_category=True,
         **kwargs)
