@@ -77,7 +77,8 @@ class RTDETRPostProcessor(nn.Module):
             # proses mask
             if pred_masks is not None and len(query_indices[i]) > 0:
                 selected_masks_raw = pred_masks[i, query_indices[i]]
-                height, width = orig_target_sizes[i].int().tolist()
+                # height, width = orig_target_sizes[i].int().tolist()
+                width, height = orig_target_sizes[i].int().tolist()
                 # height, width = targets[i]['orig_size'].int().tolist()
                 
                 # Apply sigmoid and upsample to target size
@@ -100,7 +101,8 @@ class RTDETRPostProcessor(nn.Module):
                 
             elif pred_masks is not None:
                 # No valid detections but masks are expected
-                height, width = orig_target_sizes[i].int().tolist()
+                # height, width = orig_target_sizes[i].int().tolist()
+                width, height = orig_target_sizes[i].int().tolist()
                 # height, width = targets[i]['orig_size'].int().tolist()
                 result['masks'] = torch.empty(0, 1, height, width, device=logits.device, dtype=torch.bool)
 
