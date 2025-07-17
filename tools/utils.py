@@ -278,75 +278,14 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        # fixed_size_input = F.interpolate(samples, size=(640, 640), mode='bilinear', align_corners=False)
-
         with torch.autocast(device_type=device.type, enabled=use_amp == True and device.type == 'cuda'):
             outputs = model(samples)
-            # outputs = model(fixed_size_input)
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
-        # results = postprocessor(outputs, targets)
-        # print(f"[DEBUG] results: {results}")
-
-        if i_batch == 0 and dist_utils.is_main_process():
-            print("\n" + "="*80)
-            print("--- STARTING DEEP DIVE VALIDATION DEBUG ---")
-            
-            # 1. Inspect Ground Truth Data (Input to Model)
-            print("\n[STEP 1] Inspecting Ground Truth Target from Dataloader...")
-            first_gt = targets[0]
-            gt_mask_shape = first_gt['masks'].shape if 'masks' in first_gt else 'No masks in GT'
-            gt_orig_size = first_gt['orig_size']
-            print(f"  - GT 'orig_size': {gt_orig_size.tolist()}")
-            print(f"  - GT mask shape: {gt_mask_shape}")
-            if 'masks' in first_gt and first_gt['masks'].numel() > 0:
-                 print(f"  - GT individual mask shape: {first_gt['masks'][0].shape}")
-                 # Check if GT mask dimensions match orig_size
-                 if tuple(gt_orig_size.tolist()[::-1]) != first_gt['masks'][0].shape:
-                     print(f"  - 🚨 WARNING: GT mask H,W {first_gt['masks'][0].shape} does NOT match 'orig_size' H,W {tuple(gt_orig_size.tolist()[::-1])}")
-
-        # samples = samples.to(device)
-        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-        # with torch.autocast(device_type=device.type, enabled=use_amp == True and device.type == 'cuda'):
-        #     outputs = model(samples)
-        
-        if i_batch == 0 and dist_utils.is_main_process():
-            # 2. Inspect Raw Model Output
-            print("\n[STEP 2] Inspecting Raw Model Output...")
-            print(f"  - Raw pred_masks shape: {outputs['pred_masks'].shape}")
-            # check for bad values
-            min_val, max_val, mean_val = outputs['pred_masks'].min(), outputs['pred_masks'].max(), outputs['pred_masks'].mean()
-            print(f"  - Raw pred_masks stats: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}")
-        
-        # orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
-        # results = postprocessor(outputs, orig_target_sizes)
-
-        if i_batch == 0 and dist_utils.is_main_process():
-            # 3. Inspect Post-Processed Results (Input to Evaluator)
-            print("\n[STEP 3] Inspecting Post-Processed Results...")
-            first_res = results[0]
-            pred_mask_shape = first_res['masks'].shape if 'masks' in first_res else 'No masks in prediction'
-            print(f"  - Stacked 'orig_target_sizes' passed to postprocessor for this image: {orig_target_sizes[0].tolist()}")
-            print(f"  - Predicted mask shape: {pred_mask_shape}")
-
-            if 'masks' in first_res and first_res['masks'].numel() > 0:
-                # This is the most critical check
-                print(f"  - Predicted individual mask H,W: {first_res['masks'].shape[2:]}")
-                print(f"  - Ground Truth H,W for comparison: {tuple(targets[0]['orig_size'].tolist()[::-1])}")
-                if first_res['masks'].shape[2:] != tuple(targets[0]['orig_size'].tolist()[::-1]):
-                     print(f"  - 🚨 FATAL ERROR: Predicted mask dimensions do not match GT dimensions!")
-            print("--- END OF DEEP DIVE DEBUG ---")
-            print("="*80 + "\n")
-            # You can add `sys.exit()` here to stop after the first batch for quick debugging
-            # import sys; sys.exit()
-        # --- END OF DIAGNOSTIC BLOCK ---
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
-        # # convert tensor ke cpu
-        # res = {target['image_id'].item(): {k: v.cpu() for k, v in output.items()} 
-        #        for target, output in zip(targets, results)}
+
         if coco_evaluator is not None:
             coco_evaluator.update(res)
 

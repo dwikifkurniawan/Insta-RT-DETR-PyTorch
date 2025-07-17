@@ -35,11 +35,9 @@ class RTDETRPostProcessor(nn.Module):
         return f'use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}'
     
     def forward(self, outputs, orig_target_sizes: torch.Tensor):
-    # def forward(self, outputs, targets: list):
         logits, boxes = outputs['pred_logits'], outputs['pred_boxes']
         pred_masks = outputs.get('pred_masks', None)
 
-        # orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         batch_size = logits.shape[0]
 
         # Ini detection dari RT-DETR
@@ -77,10 +75,8 @@ class RTDETRPostProcessor(nn.Module):
             # proses mask
             if pred_masks is not None and len(query_indices[i]) > 0:
                 selected_masks_raw = pred_masks[i, query_indices[i]]
-                # height, width = orig_target_sizes[i].int().tolist()
                 width, height = orig_target_sizes[i].int().tolist()
-                # height, width = targets[i]['orig_size'].int().tolist()
-                
+
                 # Apply sigmoid and upsample to target size
                 # Shape: [N, H_mask, W_mask] -> [N, 1, H_target, W_target]
                 mask_logits = selected_masks_raw.sigmoid()
@@ -101,9 +97,7 @@ class RTDETRPostProcessor(nn.Module):
                 
             elif pred_masks is not None:
                 # No valid detections but masks are expected
-                # height, width = orig_target_sizes[i].int().tolist()
                 width, height = orig_target_sizes[i].int().tolist()
-                # height, width = targets[i]['orig_size'].int().tolist()
                 result['masks'] = torch.empty(0, 1, height, width, device=logits.device, dtype=torch.bool)
 
             if self.remap_mscoco_category:
