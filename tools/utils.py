@@ -278,8 +278,11 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
+        fixed_size_input = F.interpolate(samples, size=(640, 640), mode='bilinear', align_corners=False)
+
         with torch.autocast(device_type=device.type, enabled=use_amp == True and device.type == 'cuda'):
-            outputs = model(samples)
+            # outputs = model(samples)
+            outputs = model(fixed_size_input)
 
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
         results = postprocessor(outputs, orig_target_sizes)
@@ -303,11 +306,11 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
                  if tuple(gt_orig_size.tolist()[::-1]) != first_gt['masks'][0].shape:
                      print(f"  - 🚨 WARNING: GT mask H,W {first_gt['masks'][0].shape} does NOT match 'orig_size' H,W {tuple(gt_orig_size.tolist()[::-1])}")
 
-        samples = samples.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        # samples = samples.to(device)
+        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        with torch.autocast(device_type=device.type, enabled=use_amp == True and device.type == 'cuda'):
-            outputs = model(samples)
+        # with torch.autocast(device_type=device.type, enabled=use_amp == True and device.type == 'cuda'):
+        #     outputs = model(samples)
         
         if i_batch == 0 and dist_utils.is_main_process():
             # 2. Inspect Raw Model Output
@@ -317,8 +320,8 @@ def val(model, weight_path, val_dataloader, criterion=None, use_amp=True, use_em
             min_val, max_val, mean_val = outputs['pred_masks'].min(), outputs['pred_masks'].max(), outputs['pred_masks'].mean()
             print(f"  - Raw pred_masks stats: min={min_val:.4f}, max={max_val:.4f}, mean={mean_val:.4f}")
         
-        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
-        results = postprocessor(outputs, orig_target_sizes)
+        # orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)        
+        # results = postprocessor(outputs, orig_target_sizes)
 
         if i_batch == 0 and dist_utils.is_main_process():
             # 3. Inspect Post-Processed Results (Input to Evaluator)
