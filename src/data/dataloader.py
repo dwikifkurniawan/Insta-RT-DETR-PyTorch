@@ -79,10 +79,12 @@ class BatchImageCollateFuncion(BaseCollateFunction):
         # self.interpolation = interpolation
 
     def __call__(self, items):
-        images = torch.cat([x[0][None] for x in items], dim=0)
-        targets = [x[1] for x in items]
+        # images = torch.cat([x[0][None] for x in items], dim=0)
+        # targets = [x[1] for x in items]
 
-        if self.scales is not None and self.epoch < self.stop_epoch:
+        if self.scales is not None and self.epoch < self.stop_epoch and self.epoch != -1:
+            images = torch.cat([x[0][None] for x in items], dim=0)
+            targets = [x[1] for x in items]
             # sz = random.choice(self.scales)
             # sz = [sz] if isinstance(sz, int) else list(sz)
             # VF.resize(inpt, sz, interpolation=self.interpolation)
