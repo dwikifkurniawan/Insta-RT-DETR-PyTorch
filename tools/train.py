@@ -8,7 +8,7 @@ import wandb
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from src import zoo
 from utils import fit, val, str2bool
-from src.data.coco.coco_dataset import CocoDetection
+from src.data.coco.coco_dataset import CocoDetection, CocoDetection_share_memory
 from src.misc import dist_utils
 from src.data.dataloader import DataLoader, BatchImageCollateFuncion
 import argparse
@@ -34,7 +34,8 @@ def main():
     val_dataset = zoo.coco_val_dataset(
         img_folder=os.path.join(args.dataset_dir, "val2017"),
         ann_file=os.path.join(args.dataset_dir, "annotations/instances_val2017.json"), 
-        dataset_class=CocoDetection)
+        # dataset_class=CocoDetection)
+        dataset_class=CocoDetection_share_memory)
     val_dataloader = DataLoader(dataset=val_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False, drop_last=False, 
                                 collate_fn=BatchImageCollateFuncion())
 

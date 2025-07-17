@@ -41,6 +41,7 @@ def coco_val_dataset(
         ann_file="./dataset/coco/annotations/instances_val2017.json",
         range_num=None,
         dataset_class=CocoDetection_share_memory,
+        # dataset_class=CocoDetection,
         **kwargs):
     
     val_dataset = dataset_class(
