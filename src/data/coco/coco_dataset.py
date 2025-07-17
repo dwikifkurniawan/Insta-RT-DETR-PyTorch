@@ -145,6 +145,28 @@ class CocoDetection_share_memory(torchvision.datasets.VisionDataset):
             
         return image, target
     
+    def load_item(self, idx):
+        """
+        Loads an item without applying transforms.
+        This is needed for the convert_to_coco_api function.
+        """
+        image = self._load_image(idx)
+        target = self._load_target(idx)
+        
+        target = {'image_id': self.imgs_info[idx]['id'], 'annotations': target}
+
+        image, target = self.prepare(image, target, category2label=mscoco_category2label) if self.remap_mscoco_category else self.prepare(image, target)
+        
+        # We need to add the tv_tensor conversion here as well because 
+        # convert_to_coco_api expects it for things like 'boxes'.
+        if 'boxes' in target:
+            target['boxes'] = convert_to_tv_tensor(target['boxes'], key='boxes', spatial_size=image.size[::-1])
+
+        if 'masks' in target:
+            target['masks'] = convert_to_tv_tensor(target['masks'], key='masks')
+            
+        return image, target
+    
     def extra_repr(self) -> str:
         s = f' img_folder: {self.img_folder}\n ann_file: {self.ann_file}\n'
         s += f' return_masks: {self.return_masks}\n'
