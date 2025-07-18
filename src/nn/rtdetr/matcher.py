@@ -204,6 +204,9 @@ class HungarianMatcher(nn.Module):
             # indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
             # indices = [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
+            # handle nan and inf values in cost matrix
+            C = torch.nan_to_num(C, nan=100000.0, posinf=100000.0, neginf=100000.0)
+
             C = C.reshape(num_queries, -1).cpu()
             indices.append(linear_sum_assignment(C))
 
