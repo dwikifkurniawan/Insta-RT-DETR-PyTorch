@@ -12,6 +12,10 @@ def coco_train_dataset(
         ann_file="./dataset/coco/annotations/instances_train2017.json",
         range_num=None,
         dataset_class=CocoDetection_share_memory,
+        # ini untuk large-scale jitter (LSJ) augmentation
+        image_size=640,
+        min_scale=0.1,
+        max_scale=2.0,
         **kwargs):
     
     train_dataset = dataset_class(

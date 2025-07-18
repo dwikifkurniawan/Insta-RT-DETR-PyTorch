@@ -151,6 +151,11 @@ def train_one_epoch(model: torch.nn.Module,
             loss_dict = criterion(outputs, targets)
 
             loss = sum(loss_dict.values())
+            if not torch.isfinite(loss):
+                print(f"\nWARNING: Unstable loss detected: {loss.item()}. Skipping update step...")
+                optimizer.zero_grad()
+                continue
+
             # weight_dict = criterion.weight_dict
             # loss = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
             scaler.scale(loss).backward()
