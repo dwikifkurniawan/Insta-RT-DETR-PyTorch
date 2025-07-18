@@ -69,7 +69,8 @@ def fit(model,
     if criterion == None:
         criterion = rtdetr_criterion()
 
-    scaler = GradScaler() if use_amp == True else None
+    # scaler = GradScaler() if use_amp == True else None
+    scaler = torch.amp.GradScaler(enabled=use_amp) if use_amp == True else None
     ema_model = ModelEMA(model, decay=0.9999, warmups=2000) if use_ema == True else None
     lr_scheduler = lr_schedulers.MultiStepLR(optimizer=optimizer, milestones=[1000], gamma=0.1) 
 
