@@ -180,7 +180,7 @@ class HungarianMatcher(nn.Module):
                 ).squeeze(1)
 
                 # with autocast(enabled=False):
-                with torch.amp.autocast(enabled=False):
+                with torch.amp.autocast(device_type = 'cuda', enabled=False):
                     out_mask = out_mask.float()
                     tgt_mask = tgt_mask.float()
                     # If there's no annotations
