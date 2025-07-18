@@ -168,7 +168,7 @@ def train_one_epoch(model: torch.nn.Module,
             #     check_grad(model_to_check, "encoder.fusion_output_conv.conv")
             #     print("--- END OF SMOKE TEST ---\n")
 
-            if torch.isfinite(scaler.get_scale()):
+            if torch.isfinite(torch.tensor(scaler.get_scale())):
                 if max_norm > 0:
                     scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
