@@ -76,7 +76,18 @@ def fit(model,
 
     last_epoch = 0
     if weight_path != None:
-        last_epoch = load_tuning_state(weight_path, model, ema_model)
+        # last_epoch = load_tuning_state(weight_path, model, ema_model)
+        state = torch.load(weight_path, map_location='cpu')
+        model.load_state_dict(state['model'])
+
+        if ema_model is not None and 'ema' in state:
+            ema_model.load_state_dict(state['ema'])
+
+        if scaler is not None and 'scaler' in state:
+            scaler.load_state_dict(state['scaler'])
+            print("INFO: Loaded GradScaler state from checkpoint.")
+
+        last_epoch = state.get('last_epoch', 0)
 
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -109,7 +120,7 @@ def fit(model,
 
         lr_scheduler.step()
 
-        dist_utils.save_on_master(state_dict(epoch, model, ema_model), os.path.join(save_dir, f'{epoch}.pth'))
+        dist_utils.save_on_master(state_dict(epoch, model, ema_model, scaler), os.path.join(save_dir, f'{epoch}.pth'))
 
         # The val function during training is always use_ema=False flag to skip the logic of fetching ema files
         module = ema_model.module if use_ema == True else model
