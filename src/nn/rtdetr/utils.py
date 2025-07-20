@@ -122,7 +122,7 @@ def load_tuning_state(path, model, ema_model=None):
     return state['last_epoch']
 
 
-def state_dict(last_epoch, model, ema_model=None, scaler=None):
+def state_dict(last_epoch, model, ema_model=None, scaler=None, optimizer=None):
     '''current train info state dict 
     '''
     state = {}
@@ -135,5 +135,8 @@ def state_dict(last_epoch, model, ema_model=None, scaler=None):
 
     if scaler is not None:
         state['scaler'] = scaler.state_dict()
+
+    if scaler is not None:
+        state['optimizer'] = optimizer.state_dict()
 
     return state
