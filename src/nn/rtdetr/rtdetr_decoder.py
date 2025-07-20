@@ -14,6 +14,8 @@ import torch.nn.init as init
 from .denoising import get_contrastive_denoising_training_group
 from .utils import deformable_attention_core_func, get_activation, inverse_sigmoid
 from .utils import bias_init_with_prob
+from torch.utils.checkpoint import checkpoint
+
 
 
 class MLP(nn.Module):
@@ -822,7 +824,18 @@ class RTDETRTransformer(nn.Module):
 
             # Update queries via self- and cross-attention
             # inter_queries = self.decoder.layers[i](inter_queries, ref_points_input, memory, det_spatial_shapes, level_start_index, attn_mask, None, query_pos_embed)
-            inter_queries = self.decoder.layers[i](
+            # inter_queries = self.decoder.layers[i](
+            #     inter_queries, 
+            #     ref_points_input, 
+            #     memory, 
+            #     det_spatial_shapes, 
+            #     level_start_index, 
+            #     attn_mask, 
+            #     None, # memory_mask
+            #     query_pos_embed
+            # )
+            inter_queries = checkpoint(
+                self.decoder.layers[i],
                 inter_queries, 
                 ref_points_input, 
                 memory, 
@@ -830,7 +843,8 @@ class RTDETRTransformer(nn.Module):
                 level_start_index, 
                 attn_mask, 
                 None, # memory_mask
-                query_pos_embed
+                query_pos_embed,
+                use_reentrant=False 
             )
             
             # Predict boxes and classes
