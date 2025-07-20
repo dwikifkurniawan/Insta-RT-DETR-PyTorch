@@ -77,7 +77,15 @@ def coco_train_dataset(
     transforms_list = []
     if use_copy_paste:
         print("Using Copy-Paste augmentation")
-        transforms_list.append(CopyPaste(dataset_class(img_folder, ann_file), p=0.5))
+        temp_dataset = dataset_class(
+            img_folder=img_folder,
+            ann_file=ann_file,
+            transforms=None, 
+            return_masks=True,
+            remap_mscoco_category=True,
+            **kwargs
+        )
+        transforms_list.append(CopyPaste(dataset=temp_dataset, p=0.5))
     
     transforms_list.extend([
         T.RandomPhotometricDistort(p=0.5), 
