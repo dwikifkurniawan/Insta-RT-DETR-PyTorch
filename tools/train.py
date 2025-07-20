@@ -47,7 +47,8 @@ def main():
     else:
         train_dataset = zoo.coco_train_dataset(
             img_folder=os.path.join(args.dataset_dir, "train2017"),
-            ann_file=os.path.join(args.dataset_dir, "annotations/instances_train2017.json"))
+            ann_file=os.path.join(args.dataset_dir, "annotations/instances_train2017.json"),
+            use_copy_paste=args.use_copy_paste)
         if dist_utils.is_dist_available_and_initialized():
             print("Distributed training is enabled, setting shuffle to False")
             shuffle_train = False
@@ -108,5 +109,8 @@ if __name__ == '__main__':
     
     parser.add_argument('--use_wandb', type=str2bool, default=False,
                         help='Use Weights & Biases for logging (default: False)')
+    
+    parser.add_argument('--use_copy_paste', type=str2bool, default=False,
+                        help='Use Copy-Paste augmentation (default: False)')
 
     main()
