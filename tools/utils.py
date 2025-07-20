@@ -97,7 +97,11 @@ def fit(model,
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
     ema_model.to(device) if use_ema == True else None
-    criterion.to(device)  
+    criterion.to(device)
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.to(device)
     
     #dist wrap modeln loader must do after model.to(device)
     if dist_utils.is_dist_available_and_initialized():
