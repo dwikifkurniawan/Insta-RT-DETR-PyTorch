@@ -50,6 +50,11 @@ class CopyPaste(T2.Transform):
         pasted_labels = source_target["labels"][indices_to_paste]
         pasted_masks_data = source_target["masks"][indices_to_paste].data
 
+        device = target["boxes"].device
+        pasted_boxes_data = pasted_boxes_data.to(device)
+        pasted_labels = pasted_labels.to(device)
+        pasted_masks_data = pasted_masks_data.to(device)
+
         new_boxes_data = torch.cat([target["boxes"].data, pasted_boxes_data])
         new_labels = torch.cat([target["labels"], pasted_labels])
         new_masks_data = torch.cat([target["masks"].data, pasted_masks_data])
