@@ -419,7 +419,7 @@ class RTDETRCriterion(nn.Module):
                 # l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
                 if not torch.isfinite(v):
                     weight = self.weight_dict.get(k, 1.0)
-                    replacement_val = 100.0 * weight 
+                    replacement_val = 10.0 * weight 
                     print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
                     l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
@@ -444,7 +444,7 @@ class RTDETRCriterion(nn.Module):
                     for k, v in l_dict.items():
                         if not torch.isfinite(v):
                             weight = self.weight_dict.get(k, 1.0)
-                            replacement_val = 100.0 * weight 
+                            replacement_val = 10.0 * weight 
                             print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
                             l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
@@ -469,7 +469,7 @@ class RTDETRCriterion(nn.Module):
                 for k, v in l_dict.items():
                     if not torch.isfinite(v):
                         weight = self.weight_dict.get(k, 1.0)
-                        replacement_val = 100.0 * weight 
+                        replacement_val = 10.0 * weight 
                         print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
                         l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
 
@@ -487,7 +487,7 @@ class RTDETRCriterion(nn.Module):
                         for k, v in l_dict.items():
                             if not torch.isfinite(v):
                                 weight = self.weight_dict.get(k, 1.0)
-                                replacement_val = 100.0 * weight 
+                                replacement_val = 10.0 * weight 
                                 print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
                                 l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
                         l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
