@@ -414,9 +414,14 @@ class RTDETRCriterion(nn.Module):
             
             # handle nan and inf values in losses
             for k, v in l_dict.items():
+                # if not torch.isfinite(v):
+                #     print(f"WARNING: unstable loss value in '{k}'. replacing with high loss.")
+                # l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
                 if not torch.isfinite(v):
-                    print(f"WARNING: unstable loss value in '{k}'. replacing with high loss.")
-                l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
+                    weight = self.weight_dict.get(k, 1.0)
+                    replacement_val = 100.0 * weight 
+                    print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
+                    l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
 
@@ -438,8 +443,10 @@ class RTDETRCriterion(nn.Module):
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
                     for k, v in l_dict.items():
                         if not torch.isfinite(v):
-                            print(f"WARNING: Unstable loss value detected in '{k}_aux_{i}'. replacing with high loss.")
-                        l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
+                            weight = self.weight_dict.get(k, 1.0)
+                            replacement_val = 100.0 * weight 
+                            print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
+                            l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                     l_dict = {k + f'_aux_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
@@ -461,8 +468,10 @@ class RTDETRCriterion(nn.Module):
                 # handle nan and inf values in losses
                 for k, v in l_dict.items():
                     if not torch.isfinite(v):
-                        print(f"WARNING: unstable loss value in '{k}_dn'. replacing with high loss.")
-                    l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
+                        weight = self.weight_dict.get(k, 1.0)
+                        replacement_val = 100.0 * weight 
+                        print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
+                        l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
 
                 l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                 l_dict = {k + '_dn': v for k, v in l_dict.items()}
@@ -477,8 +486,10 @@ class RTDETRCriterion(nn.Module):
                         # handle nan and inf values in losses
                         for k, v in l_dict.items():
                             if not torch.isfinite(v):
-                                print(f"WARNING: unstable loss value in '{k}_dn_{i}'. replacing with high loss.")
-                            l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
+                                weight = self.weight_dict.get(k, 1.0)
+                                replacement_val = 100.0 * weight 
+                                print(f"WARNING: Unstable value in '{k}'. Replacing with {replacement_val:.1f}.")
+                                l_dict[k] = torch.nan_to_num(v, nan=replacement_val, posinf=replacement_val, neginf=-replacement_val)
                         l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                         l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
                         losses.update(l_dict)
