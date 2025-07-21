@@ -411,6 +411,12 @@ class RTDETRCriterion(nn.Module):
         losses = {}
         for loss in self.losses:
             l_dict = self.get_loss(loss, outputs, targets, indices, num_boxes)
+            
+            # handle nan and inf values in losses
+            for k, v in l_dict.items():
+                if not torch.isfinite(v):
+                    print(f"WARNING: unstable loss value in '{k}'. replacing with high loss.")
+                l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
             l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
             losses.update(l_dict)
 
@@ -430,6 +436,10 @@ class RTDETRCriterion(nn.Module):
                         kwargs = {'log': False}
 
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
+                    for k, v in l_dict.items():
+                        if not torch.isfinite(v):
+                            print(f"WARNING: Unstable loss value detected in '{k}_aux_{i}'. replacing with high loss.")
+                        l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
                     l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                     l_dict = {k + f'_aux_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
@@ -447,6 +457,13 @@ class RTDETRCriterion(nn.Module):
                 if loss == 'masks' and 'pred_masks' not in dn_outputs:
                     continue
                 l_dict = self.get_loss(loss, dn_outputs, targets, dn_indices, dn_num_boxes)
+                
+                # handle nan and inf values in losses
+                for k, v in l_dict.items():
+                    if not torch.isfinite(v):
+                        print(f"WARNING: unstable loss value in '{k}_dn'. replacing with high loss.")
+                    l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
+
                 l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                 l_dict = {k + '_dn': v for k, v in l_dict.items()}
                 losses.update(l_dict)
@@ -457,6 +474,11 @@ class RTDETRCriterion(nn.Module):
                         if loss == 'masks' and 'pred_masks' not in aux:
                             continue
                         l_dict = self.get_loss(loss, aux, targets, dn_indices, dn_num_boxes)
+                        # handle nan and inf values in losses
+                        for k, v in l_dict.items():
+                            if not torch.isfinite(v):
+                                print(f"WARNING: unstable loss value in '{k}_dn_{i}'. replacing with high loss.")
+                            l_dict[k] = torch.nan_to_num(v, nan=1e5, posinf=1e5, neginf=-1e5)
                         l_dict = {k: l_dict[k] * self.weight_dict[k] for k in l_dict if k in self.weight_dict}
                         l_dict = {k + f'_dn_{i}': v for k, v in l_dict.items()}
                         losses.update(l_dict)
