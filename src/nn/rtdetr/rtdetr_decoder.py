@@ -883,8 +883,9 @@ class RTDETRTransformer(nn.Module):
         #     dn_out_logits, out_logits = torch.split(out_logits, dn_meta['dn_num_split'], dim=2)
         #     if self.mask_head and len(out_masks) > 0:
         #         dn_out_masks, out_masks = torch.split(out_masks, dn_meta['dn_num_split'], dim=2)
-
-        out_logits, out_bboxes, out_masks = self.dn_post_process(out_logits, out_bboxes, mask_dict, out_masks)
+        
+        if mask_dict is not None:
+            out_logits, out_bboxes, out_masks = self.dn_post_process(out_logits, out_bboxes, mask_dict, out_masks)
 
         out = {'pred_logits': out_logits[-1], 'pred_boxes': out_bboxes[-1]}
         if self.mask_head and len(out_masks) > 0: 
