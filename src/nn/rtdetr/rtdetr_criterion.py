@@ -257,6 +257,9 @@ class RTDETRCriterion(nn.Module):
             align_corners=False,
         ).squeeze(1)
 
+        # clamp the logits to the safe range of float16
+        point_logits = torch.clamp(point_logits, min=-15.0, max=15.0)
+
         losses = {
             "loss_mask_bce": sigmoid_ce_loss_jit(point_logits, point_labels, num_masks),
             "loss_mask_dice": dice_loss_jit(point_logits, point_labels, num_masks),
