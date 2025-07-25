@@ -2,9 +2,14 @@ import os
 import sys
 import time
 import argparse
+
 import torch
+
+# Add the project root directory to the Python path, just like in your train.py
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
 from src import zoo
+from src.data.coco.coco_dataset import CocoDetection
 from src.data.dataloader import DataLoader, BatchImageCollateFuncion
 
 def str2bool(v):
@@ -108,7 +113,8 @@ def main(args):
     # --- Correct COCO Dataset Creation (mirrors your train.py) ---
     val_dataset = zoo.dataset.coco_val_dataset(
         img_folder=os.path.join(args.dataset_dir, "val2017"),
-        ann_file=os.path.join(args.dataset_dir, "annotations/instances_val2017.json")
+        ann_file=os.path.join(args.dataset_dir, "annotations/instances_val2017.json"),
+        dataset_class=CocoDetection
     )
     
     # --- Correct DataLoader Creation (mirrors your train.py) ---
