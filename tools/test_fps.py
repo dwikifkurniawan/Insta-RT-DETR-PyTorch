@@ -11,6 +11,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from src import zoo
 from src.data.coco.coco_dataset import CocoDetection
 from src.data.dataloader import DataLoader, BatchImageCollateFuncion
+from utils import fit, val, str2bool
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -110,22 +111,12 @@ def main(args):
     
     print("Weights loaded successfully.")
 
-    # --- Correct COCO Dataset Creation (mirrors your train.py) ---
-    val_dataset = zoo.dataset.coco_val_dataset(
+    val_dataset = zoo.coco_val_dataset(
         img_folder=os.path.join(args.dataset_dir, "val2017"),
-        ann_file=os.path.join(args.dataset_dir, "annotations/instances_val2017.json"),
-        dataset_class=CocoDetection
-    )
-    
-    # --- Correct DataLoader Creation (mirrors your train.py) ---
-    val_dataloader = DataLoader(
-        dataset=val_dataset,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        shuffle=False,
-        drop_last=False, 
-        collate_fn=BatchImageCollateFuncion()
-    )
+        ann_file=os.path.join(args.dataset_dir, "annotations/instances_val2017.json"), 
+        dataset_class=CocoDetection)
+    val_dataloader = DataLoader(dataset=val_dataset, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=False, drop_last=False, 
+                                collate_fn=BatchImageCollateFuncion())
 
     # --- Run Benchmark ---
     benchmark(model, val_dataloader, device, args)
