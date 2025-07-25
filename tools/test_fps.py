@@ -34,7 +34,7 @@ def benchmark(model, data_loader, device, args):
     timings = []
     
     # --- Resource Monitoring Setup ---
-    process = psutil.Process(os.getpid())
+    # process = psutil.Process(os.getpid())
     
     # --- Warm-up Phase ---
     print(f"Performing {args.warmup_runs} warm-up runs...")
@@ -52,12 +52,12 @@ def benchmark(model, data_loader, device, args):
     
     # --- Benchmark Phase ---
     # Reset GPU memory stats and initialize CPU/RAM/GPU tracking before the main loop
-    if device.type == 'cuda':
-        torch.cuda.reset_peak_memory_stats(device)
+    # if device.type == 'cuda':
+    #     torch.cuda.reset_peak_memory_stats(device)
     
-    process.cpu_percent(interval=None) 
-    ram_usages_mb = []
-    gpu_mem_usages_mb = []
+    # process.cpu_percent(interval=None) 
+    # ram_usages_mb = []
+    # gpu_mem_usages_mb = []
     
     image_count = 0
     for samples, _ in data_loader:
@@ -78,24 +78,24 @@ def benchmark(model, data_loader, device, args):
         image_count += samples.size(0)
         
         # Record RAM and GPU usage after each step
-        ram_usages_mb.append(process.memory_info().rss / (1024 * 1024))
-        if device.type == 'cuda':
-            gpu_mem_usages_mb.append(torch.cuda.memory_allocated(device) / (1024 * 1024))
+        # ram_usages_mb.append(process.memory_info().rss / (1024 * 1024))
+        # if device.type == 'cuda':
+        #     gpu_mem_usages_mb.append(torch.cuda.memory_allocated(device) / (1024 * 1024))
 
     # --- Finalize Resource Metrics ---
-    cpu_usage_percent = process.cpu_percent(interval=None)
+    # cpu_usage_percent = process.cpu_percent(interval=None)
     
-    if ram_usages_mb:
-        avg_ram_mb = sum(ram_usages_mb) / len(ram_usages_mb)
-        peak_ram_mb = max(ram_usages_mb)
-    else:
-        avg_ram_mb = peak_ram_mb = 0
+    # if ram_usages_mb:
+    #     avg_ram_mb = sum(ram_usages_mb) / len(ram_usages_mb)
+    #     peak_ram_mb = max(ram_usages_mb)
+    # else:
+    #     avg_ram_mb = peak_ram_mb = 0
 
-    if gpu_mem_usages_mb:
-        avg_gpu_mem_mb = sum(gpu_mem_usages_mb) / len(gpu_mem_usages_mb)
-        peak_gpu_mem_mb = torch.cuda.max_memory_allocated(device) / (1024 * 1024)
-    else:
-        avg_gpu_mem_mb = peak_gpu_mem_mb = 0
+    # if gpu_mem_usages_mb:
+    #     avg_gpu_mem_mb = sum(gpu_mem_usages_mb) / len(gpu_mem_usages_mb)
+    #     peak_gpu_mem_mb = torch.cuda.max_memory_allocated(device) / (1024 * 1024)
+    # else:
+    #     avg_gpu_mem_mb = peak_gpu_mem_mb = 0
 
     # --- Results Calculation ---
     if not timings:
@@ -112,13 +112,13 @@ def benchmark(model, data_loader, device, args):
     print(f"Batch size: {args.batch_size}")
     print(f"Total inference time: {total_time:.2f} seconds")
     print(f"Frames Per Second (FPS): {fps:.2f}")
-    print("-" * 20)
-    print("--- Resource Usage ---")
-    print(f"Average GPU Memory: {avg_gpu_mem_mb:.2f} MB")
-    print(f"Peak GPU Memory: {peak_gpu_mem_mb:.2f} MB")
-    print(f"Average RAM Usage: {avg_ram_mb:.2f} MB")
-    print(f"Peak RAM Usage: {peak_ram_mb:.2f} MB")
-    print(f"Average CPU Usage (over benchmark duration): {cpu_usage_percent:.2f}%")
+    # print("-" * 20)
+    # print("--- Resource Usage ---")
+    # print(f"Average GPU Memory: {avg_gpu_mem_mb:.2f} MB")
+    # print(f"Peak GPU Memory: {peak_gpu_mem_mb:.2f} MB")
+    # print(f"Average RAM Usage: {avg_ram_mb:.2f} MB")
+    # print(f"Peak RAM Usage: {peak_ram_mb:.2f} MB")
+    # print(f"Average CPU Usage (over benchmark duration): {cpu_usage_percent:.2f}%")
     print("="*40)
 
 
