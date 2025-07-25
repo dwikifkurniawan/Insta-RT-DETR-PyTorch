@@ -38,17 +38,13 @@ def benchmark(model, data_loader, device, args):
         if i >= args.warmup_runs:
             break
         samples = samples.to(device)
-        # We only need the forward pass for timing
         _ = model(samples)
     
     print("Warm-up complete. Starting benchmark.")
-    
+
     # --- Benchmark Phase ---
     image_count = 0
     for samples, _ in data_loader:
-        if image_count >= args.num_images:
-            break
-            
         samples = samples.to(device)
         
         # Synchronize before starting the timer
