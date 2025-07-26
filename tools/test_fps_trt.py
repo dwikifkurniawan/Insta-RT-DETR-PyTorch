@@ -207,7 +207,7 @@ def benchmark(trt_infer, data_loader, device):
     print(f"Average RAM Usage: {avg_ram_mb:.2f} MB")
     print(f"Peak RAM Usage: {peak_ram_mb:.2f} MB")
     print(f"Average CPU Usage: {cpu_usage_percent:.2f}%")
-    print("="*4g)
+    print("="*40)
 
 def main(args):
     """
