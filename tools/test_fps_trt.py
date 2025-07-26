@@ -54,10 +54,8 @@ class TensorRTInfer:
         parser = trt.OnnxParser(network, self.logger)
         config = builder.create_builder_config()
 
-        # Set memory workspace
         config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30) # 1GB
 
-        # Enable FP16 if requested
         if self.use_fp16 and builder.platform_has_fast_fp16:
             print("Enabling FP16 mode.")
             config.set_flag(trt.BuilderFlag.FP16)
@@ -69,8 +67,8 @@ class TensorRTInfer:
                 print(parser.get_error(error))
             raise ValueError("Failed to parse the ONNX file.")
         
-        # Set dynamic input shape
         profile = builder.create_optimization_profile()
+        # Use the name 'input' which we defined during the ONNX export
         profile.set_shape("input", (1, 3, 640, 640), (8, 3, 640, 640), (16, 3, 640, 640)) 
         config.add_optimization_profile(profile)
 
@@ -79,7 +77,6 @@ class TensorRTInfer:
         if serialized_engine is None:
             raise RuntimeError("Failed to build the TensorRT engine.")
 
-        # Save the engine for future use
         os.makedirs(os.path.dirname(self.engine_path), exist_ok=True)
         with open(self.engine_path, "wb") as f:
             f.write(serialized_engine)
@@ -93,28 +90,44 @@ class TensorRTInfer:
         bindings = []
         stream = torch.cuda.Stream()
 
-        for binding in self.engine:
-            size = trt.volume(self.engine.get_binding_shape(binding))
-            dtype = trt.nptype(self.engine.get_binding_dtype(binding))
-            # Allocate memory on the GPU
-            device_mem = torch.empty(size, dtype=torch.from_numpy(np.dtype(dtype))).cuda()
+        for i in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(i)
+            is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+            
+            # --- FIX: Use the modern get_tensor_profile_shape API ---
+            shape_info = self.engine.get_tensor_profile_shape(name, 0)
+            max_shape = shape_info[2] # Use the max shape from the profile
+            
+            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
+            device_mem = torch.empty(size=trt.volume(max_shape), dtype=torch.from_numpy(np.dtype(dtype))).cuda()
             bindings.append(device_mem.data_ptr())
-            if self.engine.binding_is_input(binding):
-                inputs.append(device_mem)
+
+            if is_input:
+                inputs.append({'name': name, 'buffer': device_mem})
             else:
-                outputs.append(device_mem)
+                outputs.append({'name': name, 'buffer': device_mem})
+                
         return inputs, outputs, bindings, stream
 
     def __call__(self, x: torch.Tensor):
         # Set the input shape for the current batch
-        self.context.set_binding_shape(0, x.shape)
+        self.context.set_input_shape(self.inputs[0]['name'], x.shape)
         # Copy input tensor to the allocated GPU buffer
-        self.inputs[0].copy_(x)
+        self.inputs[0]['buffer'].copy_(x.contiguous().flatten())
+        
         # Execute inference
         self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.cuda_stream)
-        # Copy output from GPU buffer
+        
+        # Reshape and return outputs
+        results = []
+        for output in self.outputs:
+            output_shape = self.context.get_tensor_shape(output['name'])
+            output_volume = trt.volume(output_shape)
+            # Slice the buffer to the actual output size and then reshape
+            results.append(output['buffer'][:output_volume].view(output_shape))
+            
         self.stream.synchronize()
-        return self.outputs
+        return results
 
 @torch.no_grad()
 def benchmark(trt_infer, data_loader, device):
@@ -127,7 +140,7 @@ def benchmark(trt_infer, data_loader, device):
     # --- Warm-up Phase ---
     print(f"Performing warm-up runs...")
     warmup_loader = iter(data_loader)
-    for _ in range(20): # Fixed 20 warm-up runs
+    for _ in range(20):
         try:
             samples, _ = next(warmup_loader)
             samples = samples.to(device)
