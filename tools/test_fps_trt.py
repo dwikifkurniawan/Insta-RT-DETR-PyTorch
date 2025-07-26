@@ -119,16 +119,18 @@ class TensorRTInfer:
         return inputs, outputs, bindings, stream
 
     def __call__(self, x: torch.Tensor):
-        # Set the input shape for the current batch
         self.context.set_input_shape(self.inputs[0]['name'], x.shape)
         
-        # --- FIX: Copy the input tensor into a slice of the pre-allocated buffer ---
-        # This handles variable batch sizes correctly.
         input_buffer = self.inputs[0]['buffer']
-        # The slice size is determined by the number of elements in the current input tensor 'x'
-        input_buffer[:x.numel()].copy_(x.contiguous().flatten())
+        input_tensor_flat = x.contiguous().flatten()
+        input_buffer[:input_tensor_flat.numel()] = input_tensor_flat
         
-        self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.cuda_stream)
+        for i, inp in enumerate(self.inputs):
+            self.context.set_tensor_address(inp['name'], inp['buffer'].data_ptr())
+        for i, out in enumerate(self.outputs):
+            self.context.set_tensor_address(out['name'], out['buffer'].data_ptr())
+            
+        self.context.execute_async_v3(stream_handle=self.stream.cuda_stream)
         
         results = []
         for output in self.outputs:
