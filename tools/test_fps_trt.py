@@ -68,7 +68,6 @@ class TensorRTInfer:
             raise ValueError("Failed to parse the ONNX file.")
         
         profile = builder.create_optimization_profile()
-        # Use the name 'input' which we defined during the ONNX export
         profile.set_shape("input", (1, 3, 640, 640), (8, 3, 640, 640), (16, 3, 640, 640)) 
         config.add_optimization_profile(profile)
 
@@ -90,16 +89,28 @@ class TensorRTInfer:
         bindings = []
         stream = torch.cuda.Stream()
 
+        # Map numpy dtypes to torch dtypes
+        dtype_map = {
+            np.float32: torch.float32,
+            np.float16: torch.float16,
+            np.int32: torch.int32,
+            np.int8: torch.int8,
+        }
+
         for i in range(self.engine.num_io_tensors):
             name = self.engine.get_tensor_name(i)
             is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
             
-            # --- FIX: Use the modern get_tensor_profile_shape API ---
             shape_info = self.engine.get_tensor_profile_shape(name, 0)
-            max_shape = shape_info[2] # Use the max shape from the profile
+            max_shape = shape_info[2]
             
-            dtype = trt.nptype(self.engine.get_tensor_dtype(name))
-            device_mem = torch.empty(size=trt.volume(max_shape), dtype=torch.from_numpy(np.dtype(dtype))).cuda()
+            numpy_dtype = trt.nptype(self.engine.get_tensor_dtype(name))
+            # --- FIX: Use the mapping to get the correct torch dtype ---
+            torch_dtype = dtype_map.get(numpy_dtype)
+            if torch_dtype is None:
+                raise TypeError(f"Unsupported numpy dtype {numpy_dtype} for tensor {name}")
+
+            device_mem = torch.empty(size=trt.volume(max_shape), dtype=torch_dtype).cuda()
             bindings.append(device_mem.data_ptr())
 
             if is_input:
@@ -110,20 +121,15 @@ class TensorRTInfer:
         return inputs, outputs, bindings, stream
 
     def __call__(self, x: torch.Tensor):
-        # Set the input shape for the current batch
         self.context.set_input_shape(self.inputs[0]['name'], x.shape)
-        # Copy input tensor to the allocated GPU buffer
         self.inputs[0]['buffer'].copy_(x.contiguous().flatten())
         
-        # Execute inference
         self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.cuda_stream)
         
-        # Reshape and return outputs
         results = []
         for output in self.outputs:
             output_shape = self.context.get_tensor_shape(output['name'])
             output_volume = trt.volume(output_shape)
-            # Slice the buffer to the actual output size and then reshape
             results.append(output['buffer'][:output_volume].view(output_shape))
             
         self.stream.synchronize()
