@@ -162,9 +162,9 @@ cython_debug/
 
 .DS_Store
 *.ipynb
-*.pth 
+# *.pth 
 *.pdparams
-*.onnx
+# *.onnx
 output
 dataset
 
