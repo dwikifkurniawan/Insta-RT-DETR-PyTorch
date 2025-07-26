@@ -89,7 +89,6 @@ class TensorRTInfer:
         bindings = []
         stream = torch.cuda.Stream()
 
-        # Map numpy dtypes to torch dtypes
         dtype_map = {
             np.float32: torch.float32,
             np.float16: torch.float16,
@@ -105,12 +104,12 @@ class TensorRTInfer:
             max_shape = shape_info[2]
             
             numpy_dtype = trt.nptype(self.engine.get_tensor_dtype(name))
-            # --- FIX: Use the mapping to get the correct torch dtype ---
             torch_dtype = dtype_map.get(numpy_dtype)
             if torch_dtype is None:
                 raise TypeError(f"Unsupported numpy dtype {numpy_dtype} for tensor {name}")
 
-            device_mem = torch.empty(size=trt.volume(max_shape), dtype=torch_dtype).cuda()
+            # --- FIX: Removed the invalid 'size=' keyword argument ---
+            device_mem = torch.empty(trt.volume(max_shape), dtype=torch_dtype).cuda()
             bindings.append(device_mem.data_ptr())
 
             if is_input:
@@ -208,7 +207,7 @@ def benchmark(trt_infer, data_loader, device):
     print(f"Average RAM Usage: {avg_ram_mb:.2f} MB")
     print(f"Peak RAM Usage: {peak_ram_mb:.2f} MB")
     print(f"Average CPU Usage: {cpu_usage_percent:.2f}%")
-    print("="*40)
+    print("="*4g)
 
 def main(args):
     """
