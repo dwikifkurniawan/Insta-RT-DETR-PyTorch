@@ -134,9 +134,12 @@ class TensorRTInfer:
         
         results = []
         for output in self.outputs:
-            output_shape = self.context.get_tensor_shape(output['name'])
-            output_volume = trt.volume(output_shape)
-            results.append(output['buffer'][:output_volume].view(output_shape))
+            output_shape_trt = self.context.get_tensor_shape(output['name'])
+            output_volume = trt.volume(output_shape_trt)
+            
+            output_shape_torch = tuple(output_shape_trt)
+            
+            results.append(output['buffer'][:output_volume].view(output_shape_torch))
             
         self.stream.synchronize()
         return results
