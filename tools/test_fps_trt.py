@@ -108,7 +108,6 @@ class TensorRTInfer:
             if torch_dtype is None:
                 raise TypeError(f"Unsupported numpy dtype {numpy_dtype} for tensor {name}")
 
-            # --- FIX: Removed the invalid 'size=' keyword argument ---
             device_mem = torch.empty(trt.volume(max_shape), dtype=torch_dtype).cuda()
             bindings.append(device_mem.data_ptr())
 
@@ -120,8 +119,14 @@ class TensorRTInfer:
         return inputs, outputs, bindings, stream
 
     def __call__(self, x: torch.Tensor):
+        # Set the input shape for the current batch
         self.context.set_input_shape(self.inputs[0]['name'], x.shape)
-        self.inputs[0]['buffer'].copy_(x.contiguous().flatten())
+        
+        # --- FIX: Copy the input tensor into a slice of the pre-allocated buffer ---
+        # This handles variable batch sizes correctly.
+        input_buffer = self.inputs[0]['buffer']
+        # The slice size is determined by the number of elements in the current input tensor 'x'
+        input_buffer[:x.numel()].copy_(x.contiguous().flatten())
         
         self.context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.cuda_stream)
         
