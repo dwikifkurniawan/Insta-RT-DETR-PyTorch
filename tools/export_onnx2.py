@@ -20,7 +20,7 @@ def str2bool(v):
 
 def main(args):
     """
-    Main function to handle the ONNX export process.
+    Main function to handle the ONNX export process with multiple named outputs.
     """
     print(f"Creating model: {args.model_type}")
     model = getattr(zoo.model, args.model_type)()
@@ -42,8 +42,16 @@ def main(args):
     print("Weights loaded successfully and model set to evaluation mode.")
 
     dummy_input = torch.randn(1, 3, args.height, args.width)
-
-    dynamic_axes = {'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+    
+    # --- FIX: Define the correct output names based on the model's forward pass ---
+    output_names = ["pred_logits", "pred_boxes", "pred_masks"]
+    
+    dynamic_axes = {
+        'input': {0: 'batch_size'},
+        'pred_logits': {0: 'batch_size'},
+        'pred_boxes': {0: 'batch_size'},
+        'pred_masks': {0: 'batch_size'},
+    }
     
     output_dir = os.path.dirname(args.save_path)
     if output_dir:
@@ -56,26 +64,23 @@ def main(args):
             model,
             dummy_input,
             args.save_path,
-            opset_version=16, 
+            opset_version=16,
             do_constant_folding=True,
             input_names=['input'],
-            output_names=['output'],
+            output_names=output_names,
             dynamic_axes=dynamic_axes
         )
         print("ONNX export completed successfully!")
-        print(f"You can now find your model at: {args.save_path}")
     except Exception as e:
         print(f"An error occurred during ONNX export: {e}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('RT-DETR ONNX Export script')
-    
     parser.add_argument('--weight_path', '-w', type=str, required=True, help='Path to the PyTorch checkpoint file (.pth)')
     parser.add_argument('--model_type', type=str, required=True, choices=['r18vd', 'r34vd', 'r50vd', 'r50vd_m', 'r101vd', 'r50vd_segm'], help='The model architecture type')
     parser.add_argument('--save_path', type=str, required=True, help='Path to save the exported ONNX model file (.onnx)')
-    parser.add_argument('--ema', type=str2bool, default=True, help='Export the Exponential Moving Average model state if available')
-    parser.add_argument('--height', type=int, default=640, help='Input image height for the ONNX model')
-    parser.add_argument('--width', type=int, default=640, help='Input image width for the ONNX model')
-
+    parser.add_argument('--ema', type=str2bool, default=True, help='Export the EMA model state')
+    parser.add_argument('--height', type=int, default=640, help='Input image height')
+    parser.add_argument('--width', type=int, default=640, help='Input image width')
     args = parser.parse_args()
     main(args)
