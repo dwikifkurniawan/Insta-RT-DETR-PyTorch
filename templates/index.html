@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insta-RT-DETR Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .upload-box { border: 2px dashed #9ca3af; }
+        .upload-box.dragover { border-color: #3b82f6; background-color: #f0f9ff; }
+        
+        #output-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            background-color: #e5e7eb;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        
+        #output-container {
+            position: relative;
+            line-height: 0;
+        }
+        
+        #image-output {
+            display: block;
+            max-width: 100%;
+            max-height: 70vh;
+        }
+        
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">Insta-RT-DETR</h1>
+            <p class="text-gray-600 mt-2">Real-Time Instance Segmentation Demo</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <div id="upload-section" class="mb-6">
+                <div id="upload-box" class="upload-box rounded-lg p-8 text-center cursor-pointer hover:bg-gray-50">
+                    <input type="file" id="file-input" class="hidden" accept="image/*">
+                    <div class="flex flex-col items-center">
+                        <svg class="w-12 h-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                        <p class="font-semibold text-gray-700">Click to upload or drag and drop</p>
+                        <p class="text-sm text-gray-500">Image files (PNG, JPG, etc.)</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div id="output-section" class="hidden">
+                <div id="output-wrapper" class="mb-4 shadow-md">
+                    <div id="output-container">
+                        <img id="image-output" class="hidden" alt="Uploaded Image">
+                        <canvas id="canvas"></canvas>
+                        <div id="loader" class="loader hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
+                    </div>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-gray-600 bg-gray-100 rounded-lg p-3">
+                        <p>Status: <span id="status" class="font-semibold">Ready</span></p>
+                        <p id="debug-info" class="text-xs text-gray-500 mt-1"></p>
+                    </div>
+                    <button id="reset-btn" class="bg-gray-600 text-white font-semibold py-2 px-5 rounded-lg hover:bg-gray-700">
+                        Reset
+                    </button>
+                </div>
+            </div>
+
+            <!-- Message Box -->
+            <div id="message-box" class="hidden fixed top-5 right-5 bg-red-500 text-white py-2 px-4 rounded-lg shadow-lg">
+                <p id="message-text"></p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // DOM elements
+        const elements = {
+            uploadSection: document.getElementById('upload-section'),
+            uploadBox: document.getElementById('upload-box'),
+            fileInput: document.getElementById('file-input'),
+            outputSection: document.getElementById('output-section'),
+            imageOutput: document.getElementById('image-output'),
+            canvas: document.getElementById('canvas'),
+            resetBtn: document.getElementById('reset-btn'),
+            status: document.getElementById('status'),
+            debugInfo: document.getElementById('debug-info'),
+            messageBox: document.getElementById('message-box'),
+            messageText: document.getElementById('message-text'),
+            loader: document.getElementById('loader')
+        };
+
+        const ctx = elements.canvas.getContext('2d');
+        let currentPredictions = [];
+        let backendImageInfo = null;
+
+        // Event listeners
+        elements.uploadBox.addEventListener('click', () => elements.fileInput.click());
+        elements.fileInput.addEventListener('change', (e) => handleFileSelect(e.target.files));
+        elements.resetBtn.addEventListener('click', resetApp);
+
+        // Drag and drop
+        elements.uploadBox.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            elements.uploadBox.classList.add('dragover');
+        });
+
+        elements.uploadBox.addEventListener('dragleave', () => {
+            elements.uploadBox.classList.remove('dragover');
+        });
+
+        elements.uploadBox.addEventListener('drop', (e) => {
+            e.preventDefault();
+            elements.uploadBox.classList.remove('dragover');
+            handleFileSelect(e.dataTransfer.files);
+        });
+
+        // Resize observer for canvas
+        new ResizeObserver(setupCanvas).observe(elements.imageOutput);
+
+        function handleFileSelect(files) {
+            const file = files[0];
+            if (!file || !file.type.startsWith('image/')) {
+                showMessage('Please upload a valid image file');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                elements.imageOutput.src = e.target.result;
+                elements.imageOutput.onload = () => {
+                    elements.uploadSection.classList.add('hidden');
+                    elements.outputSection.classList.remove('hidden');
+                    elements.imageOutput.classList.remove('hidden');
+                    
+                    // Wait for image to render
+                    setTimeout(() => {
+                        setupCanvas();
+                        processImage(file);
+                    }, 100);
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function setupCanvas() {
+            const img = elements.imageOutput;
+            const canvas = elements.canvas;
+            
+            // Get displayed image dimensions
+            const displayWidth = img.clientWidth;
+            const displayHeight = img.clientHeight;
+            
+            // Set canvas size to match displayed image
+            canvas.width = displayWidth;
+            canvas.height = displayHeight;
+            
+            // Update debug info
+            if (backendImageInfo) {
+                elements.debugInfo.textContent = 
+                    `Backend: ${backendImageInfo.width}×${backendImageInfo.height}, ` +
+                    `Display: ${displayWidth}×${displayHeight}, ` +
+                    `Natural: ${img.naturalWidth}×${img.naturalHeight}`;
+            }
+            
+            // Redraw if we have predictions
+            if (currentPredictions.length > 0) {
+                drawDetections();
+            }
+        }
+
+        async function processImage(file) {
+            elements.status.textContent = 'Processing...';
+            elements.loader.classList.remove('hidden');
+            ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Server error');
+                }
+
+                const data = await response.json();
+                currentPredictions = data.predictions;
+                backendImageInfo = data.image_info;
+                
+                console.log('Backend image info:', backendImageInfo);
+                console.log('Frontend image info:', {
+                    natural: `${elements.imageOutput.naturalWidth}×${elements.imageOutput.naturalHeight}`,
+                    display: `${elements.imageOutput.clientWidth}×${elements.imageOutput.clientHeight}`
+                });
+                console.log('Predictions:', currentPredictions);
+                
+                setupCanvas(); // Update debug info
+                drawDetections();
+                elements.status.textContent = 'Complete';
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage(`Error: ${error.message}`);
+                elements.status.textContent = 'Error';
+            } finally {
+                elements.loader.classList.add('hidden');
+            }
+        }
+
+        function drawDetections() {
+            const canvas = elements.canvas;
+            const img = elements.imageOutput;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (!backendImageInfo || currentPredictions.length === 0) {
+                return;
+            }
+
+            const frontendW = img.naturalWidth;
+            const frontendH = img.naturalHeight;
+            const backendW = backendImageInfo.width;
+            const backendH = backendImageInfo.height;
+            
+            console.log('Dimension analysis:', {
+                frontend: `${frontendW}×${frontendH}`,
+                backend: `${backendW}×${backendH}`,
+                backendDebug: backendImageInfo
+            });
+
+            const scaleX = canvas.width / frontendW;    // Scale to canvas width
+            const scaleY = canvas.height / frontendH;   // Scale to canvas height
+            
+            console.log('Scale factors:', { 
+                scaleX: scaleX.toFixed(3), 
+                scaleY: scaleY.toFixed(3),
+                canvasSize: `${canvas.width}×${canvas.height}`
+            });
+
+            currentPredictions.forEach((pred, index) => {
+                const color = getColor(pred.label);
+                const [x1, y1, x2, y2] = pred.box;
+                
+                console.log(`${pred.label} ${index}:`, {
+                    original: [x1, y1, x2, y2],
+                    scaled: [(x1 * scaleX).toFixed(1), (y1 * scaleY).toFixed(1), (x2 * scaleX).toFixed(1), (y2 * scaleY).toFixed(1)]
+                });
+
+                // Draw FILLED mask first
+                if (pred.mask && pred.mask.length > 0) {
+                    ctx.fillStyle = `${color}60`;
+                    ctx.beginPath();
+                    ctx.moveTo(pred.mask[0][0] * scaleX, pred.mask[0][1] * scaleY);
+                    for (let i = 1; i < pred.mask.length; i++) {
+                        ctx.lineTo(pred.mask[i][0] * scaleX, pred.mask[i][1] * scaleY);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+
+                // Draw bounding box
+                const boxX = x1 * scaleX;
+                const boxY = y1 * scaleY;
+                const boxW = (x2 - x1) * scaleX;
+                const boxH = (y2 - y1) * scaleY;
+
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+                // Draw label
+                const label = `${pred.label} ${pred.score.toFixed(2)}`;
+                ctx.font = 'bold 16px Arial';
+                const textMetrics = ctx.measureText(label);
+                
+                ctx.fillStyle = color;
+                ctx.fillRect(boxX, boxY - 25, textMetrics.width + 12, 25);
+                ctx.fillStyle = 'white';
+                ctx.fillText(label, boxX + 6, boxY - 8);
+            });
+        }
+
+        function getColor(className) {
+            // Generate consistent colors for classes
+            const colors = [
+                '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+                '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9'
+            ];
+            
+            const hash = className.split('').reduce((a, b) => {
+                a = ((a << 5) - a) + b.charCodeAt(0);
+                return a & a;
+            }, 0);
+            
+            return colors[Math.abs(hash) % colors.length];
+        }
+
+        function resetApp() {
+            elements.fileInput.value = '';
+            elements.imageOutput.src = '';
+            elements.imageOutput.classList.add('hidden');
+            ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+            elements.uploadSection.classList.remove('hidden');
+            elements.outputSection.classList.add('hidden');
+            elements.status.textContent = 'Ready';
+            elements.debugInfo.textContent = '';
+            currentPredictions = [];
+            backendImageInfo = null;
+        }
+
+        function showMessage(text) {
+            elements.messageText.textContent = text;
+            elements.messageBox.classList.remove('hidden');
+            setTimeout(() => {
+                elements.messageBox.classList.add('hidden');
+            }, 4000);
+        }
+    </script>
+</body>
+</html>

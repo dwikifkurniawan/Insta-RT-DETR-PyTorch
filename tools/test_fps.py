@@ -162,7 +162,6 @@ def main(args):
 
 
 if __name__ == '__main__':
-    # --- Argument Parser (mirrors your train.py) ---
     parser = argparse.ArgumentParser('RT-DETR FPS Test script')
     
     parser.add_argument('--weight_path', '-w', type=str, required=True, help='Path to the weight file')
@@ -171,8 +170,6 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1, help='Mini-batch size for testing')
     parser.add_argument('--num_workers', type=int, default=2, help='Number of data loading workers')
     parser.add_argument('--ema', type=str2bool, default=True, help='Use Exponential Moving Average model state')
-
-    # --- Arguments specific to the FPS test script ---
     parser.add_argument('--num_images', type=int, default=500, help="Number of images to use for the FPS test.")
     parser.add_argument('--warmup_runs', type=int, default=20, help="Number of initial runs to discard for GPU warm-up.")
     
