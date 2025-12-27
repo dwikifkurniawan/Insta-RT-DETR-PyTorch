@@ -95,7 +95,6 @@ python tools/train.py \
 - `--model_type`: Default is `r50vd_segm` (ResNet-50 backbone with segmentation).
 - `--use_wandb`: Enable Weights & Biases logging (recommended).
 - `--amp`: Enable Automatic Mixed Precision (default: True).
-- `--use_copy_paste`: Enable Copy-Paste augmentation.
 
 ### 2. Evaluation
 
