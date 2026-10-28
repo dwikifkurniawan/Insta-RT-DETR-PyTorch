@@ -1,7 +1,5 @@
 # Insta-RT-DETR: Efficient Real-Time Instance Segmentation
 
-This repository contains the official PyTorch implementation of the paper: **Insta-RT-DETR: Modifying RT-DETR for Efficient Real-Time Instance Segmentation**
-
 ---
 
 ## 📍 Overview
@@ -122,12 +120,6 @@ python app.py
 3. Open your browser at `http://localhost:5123` and upload an image to see detected bounding boxes and segmentation masks.
 
 **Note:** The app automatically handles aspect-ratio preserving resizing (padding to 640x640) and maps coordinates back to the original image size.
-
----
-
-## 🔗 Citation
-
-The paper has been accepted and is currently undergoing minor revision.
 
 ---
 
