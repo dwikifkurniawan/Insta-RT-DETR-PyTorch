@@ -1,7 +1,5 @@
 # Insta-RT-DETR: Efficient Real-Time Instance Segmentation
 
----
-
 ## 📍 Overview
 
 The primary challenge in real-time instance segmentation is achieving an optimal balance between accuracy and latency. Insta-RT-DETR addresses this trade-off by strategically integrating components from high-accuracy models (Mask DINO) into the efficient RT-DETR framework.
